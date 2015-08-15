@@ -1,0 +1,52 @@
+#!/usr/bin/python3
+# Copyright (C) 2015 Okami, okami@fuzetsu.info
+
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 3
+# of the License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+#
+# rollerd
+#
+#   This script manages the key rollover process.
+#
+#   ZSK rollover uses the Pre-Publish Method of rollover and takes
+#   place in four phases:
+#       - wait until it's time to perform a ZSK rollover
+#       - sign the zone with the KSK and Published ZSK
+#       - wait for old zone data to expire from caches
+#       - sign the zone with the new Current ZSK key
+#
+#   KSK rollover uses the Double Signature Method of rollover and takes
+#   place in seven phases:
+#       - wait for cache data to expire
+#       - generate a new (published) KSK
+#       - wait for the old DNSKEY RRset to expire from caches
+#       - roll the KSKs
+#       - transfer new keyset to the parent
+#           (currently, this is done manually)
+#       - wait for parent to publish the new DS record
+#           (currently, this is done manually)
+#       - reload the zone
+#
+
+import sys
+
+from dnssec.rollerd import RollerD
+
+
+if __name__ == '__main__':
+    '''
+    Do Everything.
+    '''
+    rollerd = RollerD()
+    rollerd.main()
