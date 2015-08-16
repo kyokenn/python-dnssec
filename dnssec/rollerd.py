@@ -15,26 +15,27 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
 import datetime
-import re
 import os
 import pwd
+import re
+import shlex
 import signal
+import subprocess
 import sys
 import time
 
-from . import defs
 from .common import CommonMixin
-from .cmd import *
+from .cmd import CmdMixin
 from .defs import *
+from .keyrec import KSKMixin
 from .rolllog import *
 from .rollmgr import *
-from .rollrec import *
+from .rollrec import RollRecMixin
 
 
-INC = os.path.dirname(defs.__file__)
-
-
-class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
+class RollerD(
+        CmdMixin, RollLogMixin, RollRecMixin, KSKMixin, RollMgrMixin,
+        CommonMixin):
     NAME = 'pyrollerd'
     VERS = '%s version: 0.0.1' % NAME
     DTVERS = 'DNSSEC-Tools Version: N/A'
@@ -103,7 +104,6 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
 
     boottime = datetime.datetime.now()  # Timestamp of rollerd's start time.
 
-    curdir = ''  # Directory.
     keyarch = ''  # Key-archive program.
     packed = False  # Flag indicating if running packed.
     xqtdir = ''  # Execution directory.
@@ -188,7 +188,7 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
                     config[key.strip()] = value.strip()
         return config
 
-    def rrfokay(self, rrf, mp):
+    def rrfokay(self, rrf, mp=''):
         '''
         Routine: rrfokay()
         Purpose: This routine checks to see if a rollrec file is okay.
@@ -240,7 +240,7 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
         self.realm = self.opts[OPT_REALM]
         self.verbose = self.opts[OPT_VERBOSE]
         self.logfile = self.opts[OPT_LOGFILE] or self.dtconf.get(DT_LOGFILE)
-        self.loglevel = self.opts[OPT_LOGLEVEL] or self.dtconf.get(DT_LOGLEVEL) or LOG_DEFAULT
+        self.loglevel = self.opts[OPT_LOGLEVEL] or int(self.dtconf.get(DT_LOGLEVEL)) or LOG_DEFAULT
         self.logtz = self.opts[OPT_LOGTZ] or self.dtconf.get(DT_LOGTZ)
         self.sleeptime = self.opts[OPT_SLEEP] or int(self.dtconf.get(DT_SLEEP)) or DEFAULT_NAP
         self.dtcf = self.opts[OPT_DTCONF] or self.dtconfig
@@ -379,8 +379,8 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
         # NOOP
 
         # Set the logging level and file.
-        self.loglevel_save = self.loglevel
         self.loglevel = self.rolllog_level(self.loglevel, True)
+        self.loglevel_save = self.loglevel
         self.logfile = self.rolllog_file(self.logfile, True)
 
         # Set the called-command options.
@@ -480,12 +480,22 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
 
         # For each rollrec entry, get the keyrec file and mark its zone
         # entry as being controlled by us.
-        for rname in rollrec_names():
+        for rname in self.rollrec_names():
             # Get the rollrec for this name.
             rrr = self.rollrec_fullrec(rname)
+            if not rrr.is_active:
+                continue
 
             # Build the keyrec file.
             keyrec = rrr.keyrec()
+
+            # Set the error flag if either the zonefile or the keyrec
+            # file don't exist.
+            if not keyrec:
+                self.rolllog_log(
+                    LOG_ERR, rname,
+                    'keyrec "%s" does not exist' % rrr.keyrec_path)
+                continue
 
             # Mark the keyrec's zone as being under our control.
             keyrec[rname]['rollmgr'] = 'pyrollerd'
@@ -695,7 +705,7 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
         '''
         if self.sleep_override:
             return
-        self.rolllog_log(LOG_TMI, '', 'sleeping for $sleeptime seconds')
+        self.rolllog_log(LOG_TMI, '', 'sleeping for %s seconds' % self.sleeptime)
         self.sleepcnt = 0
         while self.sleepcnt < self.sleeptime:
             nap = self.sleeptime - self.sleepcnt
@@ -704,14 +714,17 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
 
     def signer(self, rname, zsflag, krr):
         '''
-        Routine: signer()
-        Purpose: Signs a zone with a specified ZSK.
-                On success, the return value of the zone-signing command
-                is returned.
-                On failure, "" is returned.
-        rname - Name of rollrec.
+        Signs a zone with a specified ZSK.
+        On success, the return value of the zone-signing command is returned.
+        On failure, '' is returned.
+
+        @param rname: Name of rollrec.
+        @type rname: str
         zsflag - Flag for key generation.
         krr - Reference to zone's keyrec.
+
+        @returns: string
+        @rtype: str
         '''
         initial = False  # Initial-signing flag.
         signonly = ''  # Sign-only flag.
@@ -764,8 +777,8 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
             zsflag += ' -zone %s' % rrr['zonename']
 
         # If the -krf flag wasn't specified, we'll force it in here.
-        if '-krf' not in zsflag:
-            zsflag += ' -krf %s' % rrr['keyrec']
+        if '-krfile' not in zsflag:
+            zsflag += ' -krfile %s' % rrr['keyrec']
 
         # If the -krf flag wasn't specified, we'll force it in here.
         if signonly:
@@ -788,42 +801,78 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
 
         # Build the command to execute.
         cmdstr = (
-            '%(zonesigner)s -rollmgr rollerd -dtconfig %(dtcf)s '
+            '%(zonesigner)s -rollmgr pyrollerd -dtconfig %(dtcf)s '
             '%(zsflag)s %(zonefile)s %(zonesigned)s' % {
             'zonesigner': self.zonesigner,
             'dtcf': self.dtcf,
-            'zsflag': self.zsflag,
+            'zsflag': zsflag,
             'zonefile': zonefile,
             'zonesigned': zonesigned,
         })
         self.rolllog_log(LOG_INFO, rname, 'executing "%s"' % cmdstr)
 
         # Have zonesigner sign the zone for us.
-        # NOT IMPLEMENTED
-        # ret = self.runner(rname, cmdstr, rrr['keyrec'], 0)
-        # if ret != 0:
-        #     # Error logging is done in runner(), rather than here
-        #     # or in zoneerr().
-        #     self.skipnow(rname)
-        #     self.zoneerr(rname, rrr)
-        # else:
-        #     rrr['signed'] = 1
-        #     wassigned = 1
+        ret = self.runner(rname, cmdstr, rrr['keyrec'], 0)
+        if not ret:
+            # Error logging is done in runner(), rather than here
+            # or in zoneerr().
+            pass
+            # self.skipnow(rname)
+            # self.zoneerr(rname, rrr)
+        else:
+            rrr['signed'] = 1
+            self.wassigned = True
 
-        # return ret
+        return ret
 
-    def rollkeys(self, rollrec):
+    def runner(self, rname, cmd, krf, negerrflag):
         '''
-        Routine: rollkeys()
-        Purpose: Go through the zones in the rollrec file and start rolling
-                 the ZSKs and KSKs for those which have expired.
+        Routine: runner()
+        Purpose: This routine executes another command.
+                 This other command is almost certainly going to be zonesigner.
+        rname - Name of rollrec rec.
+        cmd - Command to execute.
+        krf - Zone's keyrec file.
+        negerrflag - Only-negative-error flag.
+        '''
+        ret = 0  # Command's return code.
+        out = ''  # Command's output.
+
+        # Close the current keyrec file.
+        # NOOP
+
+        # Execute the specific command.
+        self.rolllog_log(LOG_TMI, rname, 'executing "%s"' % cmd)
+
+        # Execute the given command.  We'll save the stdout and stderr
+        # output in case of error.
+        p = subprocess.Popen(
+            shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            cwd=os.getcwd())
+        ret = p.wait()
+        out = p.stdout.read().decode('utf8')
+
+        # If the error flag is set and the command exited with an error,
+        # we'll log the output.
+        if not negerrflag and ret != 0:
+            self.rolllog_log(LOG_ERR, rname, 'execution error for command "%s"' % cmd)
+            self.rolllog_log(LOG_ERR, rname, 'error return - %d' % ret)
+            self.rolllog_log(LOG_ERR, rname, 'error output - "%s"' % out)
+
+        # Re-read current keyrec file and return a success/fail indicator.
+        return ret == 0
+
+    def rollkeys(self):
+        '''
+        Go through the zones in the rollrec file and start rolling
+        the ZSKs and KSKs for those which have expired.
         '''
         # Let the display program know we're starting a roll cycle.
         # NOT IMPLEMENTED
 
         # Check the zones in the rollrec file to see if they're ready
         # to roll.
-        for rname, rrr in rollrec.rolls():
+        for rname in self.rollrec_names():
             # Close down if we've received an INT signal.
             if self.queued_int:
                 self.rolllog_log(LOG_INFO, rname, 'received immediate shutdown command')
@@ -839,7 +888,7 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
             # Get the rollrec for this name.  If it doesn't have one,
             # whinge and continue to the next.
             # (This should never happen, but...)
-            # NOT IMPLEMENTED
+            rrr = self.rollrec_fullrec(rname)
 
             # Set the logging level to the rollrec entry's level (if it
             # has one) for the duration of processing this zone.
@@ -847,12 +896,12 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
             if 'loglevel' in rrr:
                 llev = self.rolllog_num(rrr['loglevel'])
                 if llev != -1:
-                    self.loglevel = llev
-                    self.rolllog_level(self.loglevel, 0)
+                    self.loglevel = rrr['loglevel']
+                    self.loglevel = self.rolllog_level(self.loglevel, 0)
                 else:
                     self.rolllog_log(
                         LOG_ERR, rname,
-                        'invalid rollrec logging level "%s"' rrr['loglevel'])
+                        'invalid rollrec logging level "%s"' % rrr['loglevel'])
 
             # Don't do anything with skip records.
             if not rrr.is_active:
@@ -866,21 +915,51 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
                 if (os.path.exists(rrr['directory']) and
                         os.path.isdir(rrr['directory'])):
                     os.chdir(rrr['directory'])
+                    self.rolllog_log(LOG_TMI, rname, 'chdir(%s)' % rrr['directory'])
                 else:
                     continue
 
             # If the zone's keyrec file doesn't exist, we'll try to
             # create it with a simple zonesigner call.
-            if not rrr.get('keyrec'):
+            if not rrr.keyrec():
                 self.rolllog_log(
                     LOG_ERR, rname,
-                    "keyrec \"rrr['keyrec']\" does not exist; "
-                    'running initial zonesigner')
+                    'keyrec "%s" does not exist; running initial zonesigner' %
+                    rrr.keyrec_path)
                 self.signer(rname, 'initial', 0)
+
+            # Ensure the record has the KSK and ZSK phase fields.
+            # if 'kskphase' not in rrr:
+            #     self.rolllog_log(LOG_TMI, rname, 'new kskphase entry')
+            #     # self.nextphase(rname, rrr, 0, 'KSK')
+            # if 'zskphase' not in rrr:
+            #     self.rolllog_log(LOG_TMI, rname, 'new zskphase entry')
+            #     self.nextphase(rname, rrr, 0, 'ZSK')
+
+            # Turn off the flag indicating that the zone was signed.
+            self.wassigned = 0
+
+            # If this zone's current KSK has expired, we'll get it rolling.
+            if self.ksk_expired(rname, rrr, 'kskcur'):
+                if int(rrr['zskphase']) == 0:
+                    self.rolllog_log(LOG_TMI, rname, 'current KSK has expired')
+                self.ksk_phaser(rname, rrr)
+            else:
+                self.rolllog_log(LOG_TMI, rname, 'current KSK still valid')
+
+
+
+
 
             ########################################################################
             # NOT IMPLEMENTED
             ########################################################################
+
+
+
+        # Ensure the logging level is set correctly.
+        self.loglevel = self.loglevel_save
+        # self.loglevel = self.rolllog_level(self.loglevel, 0)
 
     def full_list_event_loop(self):
         '''
@@ -899,12 +978,15 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
             self.sleep_override = False
 
             # Return to our execution directory.
-            self.rolllog_log(LOG_TMI,'','execution directory:  chdir()' % self.xqtdir)
+            self.rolllog_log(
+                LOG_TMI, '',
+                'execution directory:  chdir(%s)' % self.xqtdir)
             os.chdir(self.xqtdir)
 
             # If we have a valid rollrec file, we'll read its contents
             # and handle for expired KSKs and ZSKs.
-            if self.rrfchk(self.rollrecfile):
+            # if self.rrfchk(self.rollrecfile):
+            if self.rrfokay(self.rollrecfile):
                 # Get the contents of the rollrec file and check
                 # for expired KSKs and ZSKs.
                 self.rollrec_lock()
@@ -920,8 +1002,8 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
                     self.rolllog_log(LOG_TMI, '<timer>', 'keys checked in %s' % kronos)
 
                     # Save the current rollrec file state.
-                    rollrec_close()
-                rollrec_unlock()
+                    self.rollrec_close()
+                self.rollrec_unlock()
 
             # Check for user commands.
             self.commander()
@@ -940,8 +1022,7 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
 
     def main(self):
         '''
-        Routine: main()
-        Purpose: Do Everything.
+        Do Everything.
 
         basic steps:
             while rollrec file is not empty
@@ -954,7 +1035,7 @@ class RollerD(CmdMixin, RollLogMixin, RollRecMixin, RollMgrMixin, CommonMixin):
         self.opts = self.get_options(self.opts) or self.usage()
 
         # If there's a -dtconfig command line option, we'll use that,
-        self.dtconfig = os.path.join(INC, 'dnssec-tools.conf')
+        self.dtconfig = '/etc/dnssec-tools/dnssec-tools.conf'
         if self.opts[OPT_DTCONF] and os.path.exists(self.opts[OPT_DTCONF]):
             self.dtconfig = self.opts[OPT_DTCONF]
 

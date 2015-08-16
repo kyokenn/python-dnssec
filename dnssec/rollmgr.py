@@ -18,10 +18,16 @@ import fcntl
 import os
 import socket
 
-CHANNEL_TYPE = socket.AF_UNIX  # Type of channel we're using.
-# CHANNEL_TYPE = socket.AF_INET  # Type of channel we're using.
+# Type of channel we're using.
+CHANNEL_TYPE = socket.AF_UNIX
+# CHANNEL_TYPE = socket.AF_INET
 UNIXSOCK = 'rollmgr.socket'  # Unix socket name.
-CMDPORT = 880109
+
+# there are no TCP ports above 65535,
+# thats why original port 880109 is truncated to 16 bits:
+# 880109 = 11010110110111101101
+#              0110110111101101 = 28141
+CMDPORT = 880109 & 0xffff
 
 LINUX_MAXSOCKNAME = 107
 MAXSOCKNAME = LINUX_MAXSOCKNAME
@@ -72,18 +78,19 @@ class RollMgrMixin(object):
             self.SOCK.close()
 
         if CHANNEL_TYPE == socket.AF_INET:
-            # Create a socket.
-            self.SOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
-
             # For the server, we'll set the socket's address and mark
             # it as connectable.
             # For the client, we'll get the address of the server and
             # connect to it.  (Right now, we're only talking to localhost.)
             if is_server:
+                self.SOCK = socket.socket(
+                    socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
                 self.SOCK.bind(('localhost', CMDPORT))
                 self.SOCK.listen(socket.SOMAXCONN)
             else:
-                self.SOCK.connect(('localhost', CMDPORT))
+                self.CLNTSOCK = socket.socket(
+                    socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
+                self.CLNTSOCK.connect(('localhost', CMDPORT))
         elif CHANNEL_TYPE == socket.AF_UNIX:
             # Build the socket name and construct the socket data.
             unixsock = os.path.join('/run/dnssec-tools', UNIXSOCK)
@@ -159,14 +166,11 @@ class RollMgrMixin(object):
             return
 
         # Set a time limit on how long we'll wait for the connection.
-        # self.SOCK.settimeout(waiter)
+        self.SOCK.settimeout(waiter)
         try:
 
             # Accept the waiting connection.
-            # print('*'*80)
-            # print(self.SOCK)
             self.CLNTSOCK, addr = self.SOCK.accept()
-            # print('connected')
             if not self.CLNTSOCK:
                 return
 
@@ -215,8 +219,8 @@ class RollMgrMixin(object):
             return False
 
         # Send the command and data.
-        self.CLNTSOCK.sendall(cmd.encode('utf8') + b' ' + EOL)
-        # self.CLNTSOCK.sendall(b' ' + EOL)
+        self.CLNTSOCK.sendall(cmd.encode('utf8'))
+        self.CLNTSOCK.sendall(b' ' + EOL)
         if data:
             self.CLNTSOCK.sendall(data.encode('utf8'))
         self.CLNTSOCK.sendall(b' ' + EOL)

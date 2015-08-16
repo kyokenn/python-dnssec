@@ -14,6 +14,8 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
+import os
+
 from .defs import *
 from .rolllog import *
 
@@ -50,9 +52,9 @@ always-sign:\t%(alwayssign)s
 autosign:\t%(autosign)s
 zone reload:\t%(zoneload)s
 ''' % {
-            'boottime': self.boottime,
-            'realm': self.realm,
-            'curdir': self.curdir,
+            'boottime': self.boottime.strftime('%Y-%m-%d %H:%M:%S'),
+            'realm': self.realm or '-',
+            'curdir': os.getcwd(),
             'rollrecfile': self.rollrecfile,
             'dtconfig': self.dtconfig,
             'lfile': self.logfile,

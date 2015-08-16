@@ -14,215 +14,142 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
-from dns import rdatatype, zone
+import time
+import calendar
 
-import base64
-import collections
-import datetime
-import os
-import re
-
-from .abstract import TabbedConf
+from .defs import *
+from .rolllog import *
+from .parsers.keyrec import KeySet
 
 
-class Section(TabbedConf):
-    _TYPE = None
-    _name = None
-    _directory = None
+class KSKMixin(object):
+    def ksk_expired(self, rname, rrr, keyset):
+        '''
+        This routine determines if the specified zone has an expired
+        KSK and returns a boolean indicating this.  The given KSK
+        type is checked for expiration.
 
-    name = property(
-        lambda self: self._name,
-        lambda self, name: setattr(self, '_name', name))
-    directory = property(
-        lambda self: self._directory,
-        lambda self, directory: setattr(self, '_directory', directory))
+        The zone's keyrec file name is taken from the given rollrec
+        entry.  The keyrec file is read and the zone's entry found.
+        The key keyrec of the specified key type (currently, just
+        "kskcur") is pulled from the keyrec file.  Each key in the
+        named signing set will be checked.
 
-    def __str__(self):
-        return '%s\t"%s"\n%s' % (
-            self._TYPE, self.name,
-            ''.join(map(lambda x: self._format(*x), self.items())))
+        Key expiration is determined by comparing the key keyrec's
+        gensecs field to the current time.  The key hasn't expired
+        if the current time is less than the gensecs; the key has
+        expired if the current time is greater than the gensecs.
 
+        @param rname - Name of rollrec rec.
+        @param rrr - Reference to rollrec.
+        @param keyset - Key to check.
+        '''
+        expired = False  # Expired-zone flag.
 
-class Zone(Section):
-    _TYPE = 'zone'
-    _zskcur = None
-    _zskpub = None
-    _kskcur = None
+        # If this zone is in the middle of ZSK rollover, we'll stop
+        # working on KSK rollover.
+        if int(rrr['zskphase']) > 0:
+            self.rolllog_log(
+                LOG_TMI, rname,
+                'in ZSK rollover (phase %s); not attempting KSK rollover' %
+                rrr['zskphase'])
+            return False
 
-    def _full_path(self, key):
-        return os.path.join(self._directory, self[key])
+        # If this zone is in the middle of rollover processing, we'll
+        # immediately assume the key has expired.
+        if int(rrr['kskphase']) > 0:
+            return True
 
-    @property
-    def zonefile_path(self):
-        return self._full_path('zonefile')
+        # Get the rollin' key's keyrec for our zone.
+        krec = rrr.keyrec()
+        if not krec:
+            self.rolllog_log(
+                LOG_ERR, rname,
+                'unable to find a KSK keyrec for "%s" in "%s"' %
+                (rname, rrr.keyrec_path))
+            return False
 
-    @property
-    def signedzone_path(self):
-        return self._full_path('signedzone')
+        # Make sure we've got an actual set keyrec and keys.
+        if not (krec[rname].kskcur and isinstance(krec[rname].kskcur, KeySet)):
+            self.rolllog_log(
+                LOG_ERR, rname, '"%s" keyrec is not a set keyrec' %
+                krec[rname].kskcur)
+            return False
+        if not krec[rname].kskcur.keys:
+            self.rolllog_log(
+                LOG_ERR, rname, '"%s" has no keys; unable to check expiration"' %
+                krec[rname].kskcur.name);
+            self.zoneerr(rname, rrr)
+            return False
 
+        # Check each key in the signing set to find the one with the shortest
+        # lifespan.  We'll calculate rollover times based on that.
+        minhr = next(iter(sorted(
+            krec[rname].kskcur.keys, key=lambda x: x['ksklife'])), None)
+        minlife = int(minhr['ksklife'])
 
-class KeySet(Section):
-    _TYPE = 'set'
-    _zone = None
-    _keys = None  # is it single key always?
+        if not minhr:
+            self.rolllog_log(
+                LOG_ALWAYS, rname,
+                '--------> zsk_expired:  couldn\'t find minimum key keyrec')
+            return False
 
+        # Get the start time on which the expiration time is based.
+        if self.krollmethod == RM_ENDROLL:
+            # Ensure that required rollrec field exists.
+            if not rrr.get('ksk_rollsecs'):
+                self.rolllog_log(
+                    LOG_INFO, rname,
+                    'creating new ksk_rollsecs record and forcing KSK rollover')
+                self.rollstamp(rname, 'ksk')
+                return False
+            starter = int(rrr['ksk_rollsecs'])
+        elif self.krollmethod == RM_KEYGEN:
+            # Ensure that required keyrec field exists.
+            if minkh.get('keyrec_gensecs'):
+                self.rolllog_log(
+                    LOG_ERR, rname,
+                    'keyrec does not contain a keyrec_gensecs record')
+                return False
+            starter = int(minkh.get('keyrec_gensecs'))
+        elif self.krollmethod == RM_STARTROLL:
+            self.rolllog_log(
+                LOG_ERR, rname, 'RM_STARTROLL not yet implemented')
+            return False
 
-class Key(Section):
-    _TYPE = 'key'
-    _zone = None
-    _contents = None
+        # Don't roll immediately if the rollrec file was newly created.
+        if starter == 0:
+            rollstamp(rname, 'ksk')
+            return False
 
-    def equal(self, remote):
-        return (
-            self.algorithm() == remote['algorithm'] and
-            self.flags() == remote['flags'] and
-            self.public_key().strip('\n ') == remote['public_key'].strip('\n '))
+        # Get the key's expiration time.
+        rolltime = starter + minlife
 
-    def definition(self):
-        return '%s %s' % (
-            self.keytype(), self.gendate().strftime('%Y-%m-%d %H:%M'))
+        # Get the current time.
+        cronus = time.gmtime()
+        cronus = calendar.timegm(cronus)
 
-    def _full_path(self, key):
-        if os.path.isabs(self[key]):
-            return self[key]
+        # Figure out the log message we should give.
+        waitsecs = rolltime - cronus
+        if waitsecs >= 0:
+            self.rolllog_log(
+                LOG_EXPIRE, rname, '        expiration in %d secs' % waitsecs)
         else:
-            return os.path.join(self._directory, self[key])
+            waitsecs = cronus - rolltime
+            self.rolllog_log(
+                LOG_EXPIRE, rname, '        expired %d secs ago' % waitsecs)
 
-    @property
-    def key_path(self):
-        return self._full_path('keypath')
+        # The key has expired if the current time has passed the key's lifespan.
+        # The key has not expired if the key's lifespan has yet to reach the
+        # current time.
+        if cronus > rolltime:
+            expired = True
 
-    def _get_contents(self):
-        if not self._contents:
-            f = open(self['keypath'])
-            self._contents = ''.join(
-                x.strip('\n ')
-                for x in f.readlines()
-                if not x.strip().startswith(';'))
-        return self._contents
+        # If the keyset has not expired and the zone file has been modified,
+        # we'll sign the zone file.  We won't created any new keys or take
+        # any other rollover actions.
+        if not expired:
+            self.zonemodified(rrr, rname)
 
-    def _dnskey_data(self, i):
-        dnskey = self._get_contents().split().index('DNSKEY')
-        if dnskey >= 0:
-            return self._get_contents().split()[dnskey + i]
-
-    def name(self):
-        return self._name
-
-    def zone(self):
-        return self._zone
-
-    def set_zone(self, zone):
-        self._zone = zone
-
-    def flags(self):
-        '''
-        256 (ZSK) or 257 (KSK)
-        '''
-        #return int(self._dnskey_data(1))
-        return {
-            'zsk': 256,
-            'ksk': 257,
-        }.get(self.keytype(), 0)
-
-    def protocol(self):
-        return int(self._dnskey_data(2))
-
-    def algorithm(self):
-        '''
-        Algorithm number, see IANA Assignments:
-        http://www.iana.org/assignments/dns-sec-alg-numbers/
-        dns-sec-alg-numbers.xml
-        '''
-        return int(self._dnskey_data(3))
-
-    def public_key(self):
-        dnskey = self._get_contents().split().index('DNSKEY')
-        if dnskey >= 0:
-            return ' '.join(self._get_contents().split()[dnskey + 4:])
-
-    def public_key_source(self):
-        return base64.b64decode(self.public_key())
-
-    def keytype(self):
-        return self['keyrec_type'][:3]
-
-    def pubtype(self):
-        return self['keyrec_type'][3:]
-
-    def life(self):
-        return int(self['%slife' % self.keytype()])
-
-    def gendate(self):
-        return datetime.datetime.utcfromtimestamp(
-            int(self['keyrec_gensecs']))
-
-    def valid_until(self):
-        return datetime.datetime.utcfromtimestamp(
-            int(self['keyrec_gensecs']) + self.life())
-
-    def is_valid(self):
-        return datetime.datetime.now() < self.valid_until()
-
-    def is_signed(self):
-        '''
-        is zone signed with this key
-        '''
-        zonedata = zone.from_file(
-            self.zone().signedzone_path(), self.zone().name())
-        dnskeys = zonedata.get_rdataset(zonedata.origin, rdatatype.DNSKEY)
-        return bool(list(filter(
-            lambda x: x.key == self.public_key_source(), dnskeys)))
-
-
-class KeyRec(TabbedConf):
-    def __str__(self):
-        return (
-            '\n' +
-            '\n'.join('%s' % section for section in self.values()) +
-            '\n')
-
-    def read(self, path):
-        self._path = path
-        f = open(path, 'r')
-        self._directory = os.path.dirname(path)
-        section = None
-        for i in f.readlines():
-            if not i.strip().startswith('#'):
-                match = re.match(r'(\S+)\s+"([^"]+)"', i.strip())
-                if match:
-                    key, value = match.group(1), match.group(2)
-                    if key in ('zone', 'set', 'key'):
-                        section_class = {
-                            'zone': Zone,
-                            'set': KeySet,
-                            'key': Key,
-                        }[key]
-                        section = section_class()
-                        section.name = value
-                        section.directory = self._directory
-                        self[value] = section
-                    elif section is not None:
-                        section[key] = value
-        # link objects together
-        for name, section in self.items():
-            if type(section) == Zone:
-                # link zone with sets
-                if 'zskcur' in section:
-                    section._zskcur = self[section['zskcur']]
-                if 'zskpub' in section:
-                    section._zskpub = self[section['zskpub']]
-                if 'kskcur' in section:
-                    section._kskcur = self[section['kskcur']]
-            elif type(section) == KeySet:
-                # link set with zone
-                if 'zonename' in section:
-                    section._zone = self[section['zonename']]
-                # link set with key
-                if 'keys' in section:
-                    section._keys = self[section['keys']]
-            elif type(section) == Key:
-                # link key with zone
-                if 'zonename' in section:
-                    section._zone = self[section['zonename']]
-        f.close()
+        # Return the success/failure indication.
+        return expired
