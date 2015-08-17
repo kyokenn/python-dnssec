@@ -21,19 +21,18 @@ from .parsers.rollrec import RollRec
 
 
 class RollRecMixin(object):
+    ROLLREC = None
     RRLOCK = None
 
     def rollrec_lock(self):
         '''
-        Routine: rollrec_lock()
-        Purpose: Lock rollrec processing so that only one process reads a
-                 rollrec file at a time.
+        Lock rollrec processing so that only one process reads a
+        rollrec file at a time.
 
-                 The actual rollrec file is not locked; rather, a synch-
-                 ronization file is locked.  We lock in this manner due to
-                 the way the rollrec module's functionality is spread over
-                 a set of routines.
-        rrf - rollrec file.
+        The actual rollrec file is not locked; rather, a synch-
+        ronization file is locked.  We lock in this manner due to
+        the way the rollrec module's functionality is spread over
+        a set of routines.
         '''
         # Open (and create?) our lock file.
         if not self.RRLOCK:
@@ -43,29 +42,51 @@ class RollRecMixin(object):
 
     def rollrec_unlock(self):
         '''
-        Routine: rollrec_unlock()
-        Purpose: Unlock rollrec processing so that other processes may read
-                 a rollrec file.
+        Unlock rollrec processing so that other processes may read
+        a rollrec file.
         '''
         # Unlock the lock file.
         fcntl.flock(self.RRLOCK, fcntl.LOCK_UN)
 
-    def rollrec_read(self, rrf):
-        if os.path.exists(rrf) and os.path.isfile(rrf):
-            self.rollrec = RollRec()
-            self.rollrec.read(rrf)
+    def rollrec_read(self):
+        '''
+        Read a DNSSEC-Tools rollrec file.
+        '''
+        if os.path.exists(self.rollrecfile) and os.path.isfile(self.rollrecfile):
+            self.ROLLREC = RollRec()
+            self.ROLLREC.read(self.rollrecfile)
             return True
         else:
             return False
 
-    def rollrec_write(self, rrf):
-        self.rollrec.write(rrf)
-
     def rollrec_close(self):
-        pass
+        '''
+        Save the roll record file and close the descriptor.
+        '''
+        self.rollrec_write()
+        self.ROLLREC = None
+
+    def rollrec_write(self, writecmds=False):
+        '''
+        Save the roll record file and leave the file handle open.
+        We'll get an exclusive lock on the rollrec file in order
+        to (try to) ensure we're the only ones writing the file.
+
+        We'll make a (hopefully atomic) copy of the in-core rollrec
+        lines prior to trying to write.  This is an attempt to
+        keep the data from being mucked with while we're using it.
+        '''
+        self.ROLLREC.write(self.rollrecfile)
 
     def rollrec_names(self):
-        return self.rollrec.keys()
+        '''
+        Smoosh the rollrec names into an array and return the array.
+        The name of the informational rollrec willnot be returned.
+        '''
+        return self.ROLLREC.keys()
 
     def rollrec_fullrec(self, rname):
-        return self.rollrec[rname]
+        '''
+        Return all entries in a given rollrec.
+        '''
+        return self.ROLLREC[rname]

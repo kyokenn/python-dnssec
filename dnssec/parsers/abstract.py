@@ -18,6 +18,9 @@ import collections
 
 
 class TabbedConf(collections.OrderedDict):
+    _parent = None
+    _directory = None
+
     def _format(self, key, value):
         tabs = 1  # minimum tabs count
         if len(key) < 8:  # extra tab to short key name
@@ -30,4 +33,7 @@ class TabbedConf(collections.OrderedDict):
         f.close()
 
     def save(self):
-        self.write(self._path)
+        if self._parent:
+            self._parent.save()
+        else:  # root
+            self.write(self._path)

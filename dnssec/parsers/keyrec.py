@@ -44,6 +44,8 @@ class Section(TabbedConf):
 
 
 class Zone(Section):
+    ''' Zone section '''
+
     _TYPE = 'zone'
     _zskcur = None
     _zskpub = None
@@ -60,9 +62,33 @@ class Zone(Section):
     def signedzone_path(self):
         return self._full_path('signedzone')
 
-    zskcur = property(lambda self: self._zskcur)
-    zskpub = property(lambda self: self._zskpub)
-    kskcur = property(lambda self: self._kskcur)
+    @property
+    def zskcur(self):
+        '''
+        ZSK current
+        @returns: current key set
+        @rtype: KeySet
+        '''
+        return self._zskcur
+
+    @property
+    def zskpub(self):
+        '''
+        ZSK published
+        @returns: published key set
+        @rtype: KeySet
+        '''
+        return self._zskpub
+
+
+    @property
+    def kskcur(self):
+        '''
+        KSK current
+        @returns: current key set
+        @rtype: KeySet
+        '''
+        return self._kskcur
 
 
 class KeySet(Section):
@@ -70,19 +96,28 @@ class KeySet(Section):
     _zone = None
     _keys = tuple()
 
-    keys = property(lambda self: self._keys)
+    @property
+    def keys(self):
+        '''
+        Keys in set
+        @returns: keys
+        @rtype: list
+        '''
+        return self._keys
+
+    def minlife_key(self):
+        '''
+        Get key with the shortest lifespan
+        @returns: key
+        @rtype: Key
+        '''
+        return next(iter(sorted(self.keys, key=lambda x: x.life)), None)
 
 
 class Key(Section):
     _TYPE = 'key'
     _zone = None
     _contents = None
-
-    def equal(self, remote):
-        return (
-            self.algorithm() == remote['algorithm'] and
-            self.flags() == remote['flags'] and
-            self.public_key().strip('\n ') == remote['public_key'].strip('\n '))
 
     def definition(self):
         return '%s %s' % (
@@ -150,14 +185,17 @@ class Key(Section):
     def public_key_source(self):
         return base64.b64decode(self.public_key())
 
+    @property
     def keytype(self):
         return self['keyrec_type'][:3]
 
+    @property
     def pubtype(self):
         return self['keyrec_type'][3:]
 
+    @property
     def life(self):
-        return int(self['%slife' % self.keytype()])
+        return int(self['%slife' % self.keytype])
 
     def gendate(self):
         return datetime.datetime.utcfromtimestamp(

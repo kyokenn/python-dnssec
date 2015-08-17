@@ -48,6 +48,8 @@ class RollMgrMixin(object):
     queuedcmds = []
 
     def rollmgr_dropid(self):
+        if self.rollmgr_running():
+            return False
         try:
             pidfd = open(self.pidfile or '/run/rollerd.pid', 'w')
             fcntl.flock(pidfd, fcntl.LOCK_EX)

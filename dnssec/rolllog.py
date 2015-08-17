@@ -110,17 +110,19 @@ class RollLogMixin(object):
 
     def rolllog_level(self, newlevel, useflag):
         '''
-        Routine: rolllog_level()
-        Purpose: Get/set the logging level.  If no arguments are given, then
-                 the current logging level is returned.  If a valid new level
-                 is given, that will become the new level.
+        Get/set the logging level.  If no arguments are given, then
+        the current logging level is returned.  If a valid new level
+        is given, that will become the new level.
 
-                 If a problem occurs (invalid log level), then -1 will be
-                 returned, unless a non-zero argument was passed for the
-                 second argument.  In this case, a usage message is given and
-                 the process exits.
-        newloglevel - Name of new loglevel.
-        useflag - Usage-on-error flag.
+        If a problem occurs (invalid log level), then -1 will be
+        returned, unless a non-zero argument was passed for the
+        second argument.  In this case, a usage message is given and
+        the process exits.
+
+        @param newloglevel: Name of new loglevel.
+        @type newloglevel: str or int
+        @param useflag: Usage-on-error flag.
+        @type useflag: bool
         '''
         # Return the current log level if that's all they want.
         if not newlevel:
@@ -140,7 +142,7 @@ valid logging levels (text and numeric forms):
 \tphase  6
 \terr    8
 \tfatal  9''' % newlevel, file=sys.stderr)
-            return self.loglevel
+            return DEFAULT_LOGLEVEL
 
         return loglevel
 

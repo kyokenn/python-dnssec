@@ -40,78 +40,79 @@ class KSKMixin(object):
         if the current time is less than the gensecs; the key has
         expired if the current time is greater than the gensecs.
 
-        @param rname - Name of rollrec rec.
-        @param rrr - Reference to rollrec.
-        @param keyset - Key to check.
+        @param rname: Name of rollrec rec.
+        @type rname: str
+        @param rrr: Reference to rollrec.
+        @type rrr: Roll
+        @param keyset: Key to check.
+        @type keyset: str
+
+        @returns: True if KSK expired
+        @rtype: bool
         '''
         expired = False  # Expired-zone flag.
+        starter = 0  # Time 0 for calc'ing rolltime.
 
         # If this zone is in the middle of ZSK rollover, we'll stop
         # working on KSK rollover.
-        if int(rrr['zskphase']) > 0:
+        if rrr.zskphase > 0:
             self.rolllog_log(
                 LOG_TMI, rname,
-                'in ZSK rollover (phase %s); not attempting KSK rollover' %
-                rrr['zskphase'])
+                'in ZSK rollover (phase %d); not attempting KSK rollover' %
+                rrr.zskphase)
             return False
 
         # If this zone is in the middle of rollover processing, we'll
         # immediately assume the key has expired.
-        if int(rrr['kskphase']) > 0:
+        if rrr.kskphase > 0:
             return True
 
         # Get the rollin' key's keyrec for our zone.
-        krec = rrr.keyrec()
+        krec = getattr(rrr.keyrec()[rname], keyset)
         if not krec:
             self.rolllog_log(
                 LOG_ERR, rname,
                 'unable to find a KSK keyrec for "%s" in "%s"' %
-                (rname, rrr.keyrec_path))
+                (keyset, rrr.keyrec_path))
             return False
 
         # Make sure we've got an actual set keyrec and keys.
-        if not (krec[rname].kskcur and isinstance(krec[rname].kskcur, KeySet)):
+        if not isinstance(krec, KeySet):
             self.rolllog_log(
                 LOG_ERR, rname, '"%s" keyrec is not a set keyrec' %
-                krec[rname].kskcur)
+                keyset)
             return False
-        if not krec[rname].kskcur.keys:
+        if not krec.keys:
             self.rolllog_log(
                 LOG_ERR, rname, '"%s" has no keys; unable to check expiration"' %
-                krec[rname].kskcur.name);
-            self.zoneerr(rname, rrr)
+                rrr.keyrec_path);
+            rrr.zoneerr()
+            self.rollrec_write()
             return False
 
         # Check each key in the signing set to find the one with the shortest
         # lifespan.  We'll calculate rollover times based on that.
-        minhr = next(iter(sorted(
-            krec[rname].kskcur.keys, key=lambda x: x['ksklife'])), None)
-        minlife = int(minhr['ksklife'])
-
-        if not minhr:
-            self.rolllog_log(
-                LOG_ALWAYS, rname,
-                '--------> zsk_expired:  couldn\'t find minimum key keyrec')
-            return False
+        minhr = krec.minlife_key()
+        minlife = minhr.life
 
         # Get the start time on which the expiration time is based.
         if self.krollmethod == RM_ENDROLL:
             # Ensure that required rollrec field exists.
-            if not rrr.get('ksk_rollsecs'):
+            if 'ksk_rollsecs' not in rrr:
                 self.rolllog_log(
                     LOG_INFO, rname,
                     'creating new ksk_rollsecs record and forcing KSK rollover')
-                self.rollstamp(rname, 'ksk')
+                rrr.rollstamp('ksk')
                 return False
             starter = int(rrr['ksk_rollsecs'])
         elif self.krollmethod == RM_KEYGEN:
             # Ensure that required keyrec field exists.
-            if minkh.get('keyrec_gensecs'):
+            if 'keyrec_gensecs' not in minkh:
                 self.rolllog_log(
                     LOG_ERR, rname,
                     'keyrec does not contain a keyrec_gensecs record')
                 return False
-            starter = int(minkh.get('keyrec_gensecs'))
+            starter = int(minkh['keyrec_gensecs'])
         elif self.krollmethod == RM_STARTROLL:
             self.rolllog_log(
                 LOG_ERR, rname, 'RM_STARTROLL not yet implemented')
@@ -119,25 +120,26 @@ class KSKMixin(object):
 
         # Don't roll immediately if the rollrec file was newly created.
         if starter == 0:
-            rollstamp(rname, 'ksk')
+            rrr.rollstamp('ksk')
             return False
 
         # Get the key's expiration time.
         rolltime = starter + minlife
 
         # Get the current time.
-        cronus = time.gmtime()
-        cronus = calendar.timegm(cronus)
+        cronus = time.time()
 
         # Figure out the log message we should give.
         waitsecs = rolltime - cronus
         if waitsecs >= 0:
             self.rolllog_log(
-                LOG_EXPIRE, rname, '        expiration in %d secs' % waitsecs)
+                LOG_EXPIRE, rname, '        expiration in %s' %
+                datetime.timedelta(seconds=waitsecs))
         else:
             waitsecs = cronus - rolltime
             self.rolllog_log(
-                LOG_EXPIRE, rname, '        expired %d secs ago' % waitsecs)
+                LOG_EXPIRE, rname, '        expired %s ago' %
+                datetime.timedelta(seconds=waitsecs))
 
         # The key has expired if the current time has passed the key's lifespan.
         # The key has not expired if the key's lifespan has yet to reach the
@@ -153,3 +155,109 @@ class KSKMixin(object):
 
         # Return the success/failure indication.
         return expired
+
+    def zsk_expired(self, rname, rrr, keyset):
+        '''
+        This routine returns a boolean indicating if the specified
+        zone has an expired ZSK key of the given type.
+
+        The zone's keyrec file name is taken from the given rollrec
+        entry.  The keyrec file is read and the zone's entry found.
+        The key keyrec of the specified key type (currently, just
+        "zskcur") is pulled from the keyrec file.  Each key in the
+        named signing set will be checked.
+
+        Key expiration is determined by comparing the key keyrec's
+        gensecs field to the current time.  The key hasn't expired
+        if the current time is less than the gensecs; the key has
+        expired if the current time is greater than the gensecs.
+
+        @param rname: Name of rollrec rec.
+        @type rname: str
+        @param rrr: Reference to rollrec.
+        @type rrr: Roll
+        @param keyset: Key to check.
+        @type keyset: str
+
+        @returns: True if ZSK expired
+        @rtype: bool
+        '''
+        expired = False  # Expired-zone flag.
+        starter = 0  # Time 0 for calc'ing rolltime.
+
+        # If this zone is in the middle of KSK rollover, we'll stop
+        # working on ZSK rollover.
+        if rrr.kskphase > 0:
+            self.rolllog_log(
+                LOG_TMI, rname,
+                'in KSK rollover (phase ); not attempting ZSK rollover' %
+                rrr.kskphase)
+            return False
+
+        # If this zone is in the middle of rollover processing, we'll
+        # immediately assume the key has expired.
+        if rrr.zskphase > 0:
+            return True
+
+        # Get the rollin' key's keyrec for our zone.
+        krec = getattr(rrr.keyrec()[rname], keyset)
+        if not krec:
+            self.rolllog_log(
+                LOG_ERR, rname,
+                'unable to find a keyrec for ZSK "%s" in "%s"' %
+                (keyset, rrr.keyrec_path))
+            return False
+
+        # Make sure we've got an actual set keyrec and keys.
+        if not isinstance(krec, KeySet):
+            self.rolllog_log(
+                LOG_ERR, rname, '"%s"\'s keyrec is not a set keyrec' %
+                keyset)
+            return False
+        if not krec.keys:
+            self.rolllog_log(
+                LOG_ERR, rname, '"%s" has no keys; unable to check expiration"' %
+                rrr.keyrec_path);
+            return False
+
+        # Check each key in the signing set to find the one with the shortest
+        # lifespan.  We'll calculate rollover times based on that.
+        minhr = krec.minlife_key()
+        minlife = minhr.life
+
+        if not minhr:
+            self.rolllog_log(
+                LOG_ALWAYS, rname,
+                '--------> zsk_expired:  couldn\'t find minimum key keyrec')
+            return False
+
+        # Get the start time on which the expiration time is based.
+        if self.zrollmethod == RM_ENDROLL:
+            # Ensure that required rollrec field exists.
+            if 'zsk_rollsecs' not in rrr:
+                self.rolllog_log(
+                    LOG_INFO, rname,
+                    'creating new zsk_rollsecs record and forcing ZSK rollover')
+                rrr.rollstamp('zsk')
+                return False
+            starter = int(rrr['zsk_rollsecs'])
+        elif self.zrollmethod == RM_KEYGEN:
+            # Ensure that required keyrec field exists.
+            if 'keyrec_gensecs' not in minkh:
+                self.rolllog_log(
+                    LOG_ERR, rname,
+                    'keyrec does not contain a keyrec_gensecs record')
+                return False
+            starter = int(minkh['keyrec_gensecs'])
+        elif self.zrollmethod == RM_STARTROLL:
+            self.rolllog_log(
+                LOG_ERR, rname, 'RM_STARTROLL not yet implemented')
+            return False
+
+        # Don't roll immediately if the rollrec file was newly created.
+        if starter == 0:
+            rrr.rollstamp('zsk')
+            return False
+
+        # Get the key's expiration time.
+        rolltime = starter + minlife

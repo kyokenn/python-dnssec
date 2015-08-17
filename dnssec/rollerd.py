@@ -24,8 +24,9 @@ import subprocess
 import sys
 import time
 
-from .common import CommonMixin
 from .cmd import CmdMixin
+from .common import CommonMixin
+from .daemon import DaemonMixin
 from .defs import *
 from .keyrec import KSKMixin
 from .rolllog import *
@@ -34,8 +35,14 @@ from .rollrec import RollRecMixin
 
 
 class RollerD(
-        CmdMixin, RollLogMixin, RollRecMixin, KSKMixin, RollMgrMixin,
-        CommonMixin):
+        CmdMixin,
+        CommonMixin,
+        DaemonMixin,
+        KSKMixin,
+        RollLogMixin,
+        RollMgrMixin,
+        RollRecMixin):
+
     NAME = 'pyrollerd'
     VERS = '%s version: 0.0.1' % NAME
     DTVERS = 'DNSSEC-Tools Version: N/A'
@@ -148,6 +155,316 @@ class RollerD(
 
     rrferrors = 0  # Count of times through list.
 
+    def main(self):
+        '''
+        Do Everything.
+
+        basic steps:
+            while rollrec file is not empty
+                read rollrec file
+
+                for each rollrec in the rollrec file
+                    handle according to its phase
+        '''
+        # Parse our command line into an options hash.
+        self.opts = self.get_options(self.opts) or self.usage()
+
+        # If there's a -dtconfig command line option, we'll use that,
+        self.dtconfig = '/etc/dnssec-tools/dnssec-tools.conf'
+        if self.opts[OPT_DTCONF] and os.path.exists(self.opts[OPT_DTCONF]):
+            self.dtconfig = self.opts[OPT_DTCONF]
+
+        # Check our options and arguments.
+        self.optsandargs()
+
+        # Check our required external commands.
+        self.getprogs()
+
+        # Daemonize ourself.
+        if not self.singlerun and not self.foreground:
+            pid = os.fork()
+            if pid:
+                sys.exit(0)
+            os.setsid()
+
+        # Ensure we're the only rollerd running and drop a pid file.
+        if not self.rollmgr_dropid():
+            print('another pyrollerd is already running', file=sys.stderr)
+            self.rolllog_log(LOG_ALWAYS, '', 'another pyrollerd tried to start')
+            self.cleanup()
+
+        # If it hasn't been set yet, get the pathname for zonesigner.
+        if not self.zonesigner:
+            print(
+                'no absolute path defined for zonesigner; exiting...',
+                file=sys.stderr)
+            self.rolllog_log(
+                LOG_ALWAYS, '',
+                'no absolute path defined for zonesigner; exiting...')
+            self.cleanup()
+
+        # Tell the log we're up.
+        self.bootmsg(True)
+
+        # Mark the domains as being under our control.
+        self.eminent_domains()
+
+        # Set up the command channel.
+        ch_ret = self.rollmgr_channel(True)
+        if ch_ret != 1:
+            errs = (
+                'Unable to connect to the server.',
+                'Unable to create a Unix socket.',
+                'Unable to bind to the Unix socket.',
+                'Unable to change the permissions on the Unix socket.',
+                'Unable to listen on the Unix socket.',
+                'Communications socket name was longer than allowed for a Unix socket.',
+            )
+            self.rolllog_log(
+                LOG_FATAL, '',
+                'unable to create control communications channel:  %s' %
+                errs[ch_ret])
+            sys.exit(3)
+
+        # Main event loop.  If the rollrec file is okay, we'll read it,
+        # check its zones -- rolling 'em if need be -- and saving its state.
+        # We'll always check for user commands and then sleep a bit.
+        if self.eventmaster == EVT_FULLLIST:
+            self.rolllog_log(LOG_ALWAYS, '', ' ')
+            self.full_list_event_loop()
+        elif self.eventmaster == EVT_QUEUE_SOON:
+            self.rolllog_log(LOG_ALWAYS, '', ' ')
+            self.queue_soon_event_loop()
+        else:
+            self.rolllog_log(
+                LOG_FATAL, '',
+                'invalid event handler specified; cannot continue')
+            print(
+                'pyrollerd:  invalid event handler specified; cannot continue',
+                file=sys.stderr)
+            sys.exit(1)
+
+    def eminent_domains(self):
+        '''
+        Mark the domains in the rollrec file as being under our control.
+
+        @returns: status
+        @rtype: bool
+        '''
+        # Exit with failure if the rollrec file is bad.
+        if not self.rrfokay(''):
+            self.rolllog_log(LOG_FATAL, '', 'rollrec file "%s" invalid' % self.rollrecfile)
+            return False
+
+        # Get the current contents of the rollrec file.
+        self.rollrec_lock()
+        self.rollrec_read()
+
+        # For each rollrec entry, get the keyrec file and mark its zone
+        # entry as being controlled by us.
+        for rname in self.rollrec_names():
+            # Get the rollrec for this name.
+            rrr = self.rollrec_fullrec(rname)
+            if not rrr.is_active:
+                continue
+
+            # Build the keyrec file.
+            keyrec = rrr.keyrec()
+
+            # Set the error flag if either the zonefile or the keyrec
+            # file don't exist.
+            if not keyrec:
+                self.rolllog_log(
+                    LOG_ERR, rname,
+                    'keyrec "%s" does not exist' % rrr.keyrec_path)
+                continue
+
+            # Mark the keyrec's zone as being under our control.
+            keyrec[rname]['rollmgr'] = 'pyrollerd'
+            keyrec.save()
+
+        # Save the current rollrec file state.
+        self.rollrec_close()
+        self.rollrec_unlock()
+
+        # Return success.
+        return True
+
+    def full_list_event_loop(self):
+        '''
+        Rollover event handler -- full queue.
+        Every $sleeptime seconds, it checks the entire set of rollrecs
+        to see if any rollover actions must be taken.
+
+        This method works fine for small numbers of zones; it gets
+        unwieldy as the number of managed zones increases.
+        '''
+        while 42:
+            # Turn off signal handlers so they don't interrupt us
+            # while we're running the queue.
+            self.controllers(False)
+            self.sleep_override = False
+
+            # Return to our execution directory.
+            self.rolllog_log(
+                LOG_TMI, '',
+                'execution directory:  chdir(%s)' % self.xqtdir)
+            os.chdir(self.xqtdir)
+
+            # If we have a valid rollrec file, we'll read its contents
+            # and handle for expired KSKs and ZSKs.
+            if self.rrfchk():
+                # Get the contents of the rollrec file and check
+                # for expired KSKs and ZSKs.
+                self.rollrec_lock()
+                if self.rollrec_read():
+                    # Check the zones for expired ZSKs.  We'll also
+                    # keep track of how long it takes to check the
+                    # ZSKs.
+                    kronos1 = datetime.datetime.now()
+                    self.rollkeys()
+                    kronos2 = datetime.datetime.now()
+                    kronodiff = kronos2 - kronos1
+                    kronos = '%d seconds' % kronodiff.seconds
+                    self.rolllog_log(LOG_TMI, '<timer>', 'keys checked in %s' % kronos)
+
+                    # Save the current rollrec file state.
+                    self.rollrec_close()
+                self.rollrec_unlock()
+
+            # Check for user commands.
+            self.commander()
+
+            # We'll stop now if we're only running the queue once.
+            if self.singlerun:
+                self.rolllog_log(
+                    LOG_INFO, '',
+                    'rollover manager shutting down at end of single-run execution')
+                self.halt_handler()
+                sys.exit(0)
+
+            # Turn on our signal handlers and then take a nap.
+            self.controllers(True)
+            self.sleeper()
+
+    def rollkeys(self):
+        '''
+        Go through the zones in the rollrec file and start rolling
+        the ZSKs and KSKs for those which have expired.
+        '''
+        # Check the zones in the rollrec file to see if they're ready
+        # to roll.
+        for rname in self.rollrec_names():
+            # Close down if we've received an INT signal.
+            if self.queued_int:
+                self.rolllog_log(LOG_INFO, rname, 'received immediate shutdown command')
+                self.halt_handler()
+
+            # Return to our execution directory.
+            self.rolllog_log(LOG_TMI, rname, 'execution directory:  chdir(%s)' % self.xqtdir)
+            os.chdir(self.xqtdir)
+
+            # Ensure the logging level is set correctly.
+            self.loglevel = self.loglevel_save
+
+            # Get the rollrec for this name.  If it doesn't have one,
+            # whinge and continue to the next.
+            # (This should never happen, but...)
+            rrr = self.rollrec_fullrec(rname)
+
+            # Set the logging level to the rollrec entry's level (if it
+            # has one) for the duration of processing this zone.
+            self.loglevel_save = self.loglevel
+            if 'loglevel' in rrr:
+                llev = self.rolllog_num(rrr['loglevel'])
+                if llev != -1:
+                    self.loglevel = rrr['loglevel']
+                    self.loglevel = self.rolllog_level(self.loglevel, False)
+                else:
+                    self.rolllog_log(
+                        LOG_ERR, rname,
+                        'invalid rollrec logging level "%s"' % rrr['loglevel'])
+
+            # Don't do anything with skip records.
+            if not rrr.is_active:
+                self.rolllog_log(LOG_TMI, rname, 'is a skip rollrec')
+                continue
+
+            # If this rollrec has a directory record, we'll move into that
+            # directory for execution; if it doesn't we'll stay put.
+            # If the chdir() fails, we'll skip this rollrec.
+            if 'directory' in rrr:
+                if (os.path.exists(rrr['directory']) and
+                        os.path.isdir(rrr['directory'])):
+                    os.chdir(rrr['directory'])
+                else:
+                    continue
+
+            # If the zone's keyrec file doesn't exist, we'll try to
+            # create it with a simple zonesigner call.
+            if not rrr.keyrec():
+                self.rolllog_log(
+                    LOG_ERR, rname,
+                    'keyrec "%s" does not exist; running initial zonesigner' %
+                    rrr.keyrec_path)
+                self.signer(rname, 'initial')
+
+            # Ensure the record has the KSK and ZSK phase fields.
+            if 'kskphase' not in rrr:
+                self.rolllog_log(LOG_TMI, rname, 'new kskphase entry')
+                self.nextphase(rname, rrr, 0, 'KSK')
+            if 'zskphase' not in rrr:
+                self.rolllog_log(LOG_TMI, rname, 'new zskphase entry')
+                self.nextphase(rname, rrr, 0, 'ZSK')
+
+            # Turn off the flag indicating that the zone was signed.
+            self.wassigned = False
+
+            # If this zone's current KSK has expired, we'll get it rolling.
+            if self.ksk_expired(rname, rrr, 'kskcur'):
+                if int(rrr['zskphase']) == 0:
+                    self.rolllog_log(LOG_TMI, rname, 'current KSK has expired')
+                self.ksk_phaser(rname, rrr)
+            else:
+                self.rolllog_log(LOG_TMI, rname, 'current KSK still valid')
+
+            # If this zone's current ZSK has expired, we'll get it rolling.
+            if self.zsk_expired(rname, rrr, 'zskcur'):
+                if int(rrr['zskphase']) == 0:
+                    self.rolllog_log(LOG_INFO, rname, 'current ZSK has expired')
+                self.zsk_phaser(rname, rrr)
+            else:
+                self.rolllog_log(LOG_TMI, rname, 'current ZSK still valid')
+
+            # If -alwayssign was specified, always sign the zone
+            # even if we didn't need to for this period.
+            if self.alwayssign and not self.wassigned:
+                extraargs = ''  # Phase-dependent argument.
+
+                self.rolllog_log(
+                    LOG_TMI, rname,
+                    'signing the zone "%s" (-alwayssign specified)' % rname)
+
+                # Tell the signer what phase we're in so it
+                # can decide what key to use.
+                if int(rrr['zskphase']) > 0:
+                    extraargs = 'ZSK phase %s' % rrr['zskphase']
+                elif int(rrr['kskphase']) > 0:
+                    extraargs = 'KSK phase %s' % rrr['kskphase']
+
+                # KSK signing uses double-signature so nothing
+                # is needed since zonesigner always uses all
+                # available keys.
+
+                # Actually do the signing.
+                ret = self.signer(rname, extraargs, rrr.keyrec())
+                if ret != 0:
+                    self.rolllog_log(LOG_ERR, 'signing %s failed!' % rname)
+
+        # Ensure the logging level is set correctly.
+        self.loglevel = self.loglevel_save
+        self.loglevel = self.rolllog_level(self.loglevel, False)
+
     def usage(self):
         '''
         Routine: usage()
@@ -188,7 +505,7 @@ class RollerD(
                     config[key.strip()] = value.strip()
         return config
 
-    def rrfokay(self, rrf, mp=''):
+    def rrfokay(self, mp=''):
         '''
         Routine: rrfokay()
         Purpose: This routine checks to see if a rollrec file is okay.
@@ -201,11 +518,11 @@ class RollerD(
 
         # Check that the file exists and is non-zero in length.  If one of
         # those conditions fails, we'll set an error message and return code.
-        if not os.path.exists(rrf):
-            err = 'rollrec file "%s" does not exist' % rrf
+        if not os.path.exists(self.rollrecfile):
+            err = 'rollrec file "%s" does not exist' % self.rollrecfile
             ret = False
-        elif os.stat(rrf).st_size == 0:
-            err = 'rollrec file "%s" is zero length' % rrf
+        elif os.stat(self.rollrecfile).st_size == 0:
+            err = 'rollrec file "%s" is zero length' % self.rollrecfile
             ret = False
 
         # If we found an error, we'll (maybe) give an error message and
@@ -218,6 +535,7 @@ class RollerD(
             else:
                 self.rrferrors -= 1
             return False
+
         # Reset our error count and return success.
         self.rrferrors = 0;
         return True
@@ -240,7 +558,7 @@ class RollerD(
         self.realm = self.opts[OPT_REALM]
         self.verbose = self.opts[OPT_VERBOSE]
         self.logfile = self.opts[OPT_LOGFILE] or self.dtconf.get(DT_LOGFILE)
-        self.loglevel = self.opts[OPT_LOGLEVEL] or int(self.dtconf.get(DT_LOGLEVEL)) or LOG_DEFAULT
+        self.loglevel = self.opts[OPT_LOGLEVEL] or self.dtconf.get(DT_LOGLEVEL) or LOG_DEFAULT
         self.logtz = self.opts[OPT_LOGTZ] or self.dtconf.get(DT_LOGTZ)
         self.sleeptime = self.opts[OPT_SLEEP] or int(self.dtconf.get(DT_SLEEP)) or DEFAULT_NAP
         self.dtcf = self.opts[OPT_DTCONF] or self.dtconfig
@@ -346,7 +664,7 @@ class RollerD(
             sys.exit(0)
 
         # Whine if the rollrec file doesn't exist.
-        if not self.rrfokay(self.rollrecfile, ''):
+        if not self.rrfokay(''):
             print(
                 'pyrollerd:  rollrec file "%s" does not exist' % self.rollrecfile,
                 file=sys.stderr)
@@ -463,51 +781,6 @@ class RollerD(
                                          '    running as   "%s"' % self.username)
         self.rolllog_log(LOG_ALWAYS, '', ' ')
 
-    def eminent_domains(self, rrf):
-        '''
-        Routine: eminent_domains()
-        Purpose: Mark the domains in the rollrec file as being under our control.
-        rrf - Rollrec file.
-        '''
-        # Exit with failure if the rollrec file is bad.
-        if not self.rrfokay(rrf, ''):
-            self.rolllog_log(LOG_FATAL, '', 'rollrec file "%s" invalid' % rrf)
-            return 0
-
-        # Get the current contents of the rollrec file.
-        self.rollrec_lock()
-        self.rollrec_read(self.rollrecfile)
-
-        # For each rollrec entry, get the keyrec file and mark its zone
-        # entry as being controlled by us.
-        for rname in self.rollrec_names():
-            # Get the rollrec for this name.
-            rrr = self.rollrec_fullrec(rname)
-            if not rrr.is_active:
-                continue
-
-            # Build the keyrec file.
-            keyrec = rrr.keyrec()
-
-            # Set the error flag if either the zonefile or the keyrec
-            # file don't exist.
-            if not keyrec:
-                self.rolllog_log(
-                    LOG_ERR, rname,
-                    'keyrec "%s" does not exist' % rrr.keyrec_path)
-                continue
-
-            # Mark the keyrec's zone as being under our control.
-            keyrec[rname]['rollmgr'] = 'pyrollerd'
-            keyrec.save()
-
-        # Save the current rollrec file state.
-        self.rollrec_close()
-        self.rollrec_unlock()
-
-        # Return success.
-        return True
-
     def groupcmd(self, cmd, data):
         '''
         Routine: groupcmd()
@@ -605,114 +878,7 @@ class RollerD(
             self.rolllog_log(LOG_ERR, '<command>', 'invalid command  - "%s"' % cmd)
         return False
 
-    def commander(self):
-        '''
-        Routine: commander()
-        Purpose: Get any commands sent to rollerd's command socket.
-        '''
-        gstr = ROLLMGR_GROUP  # Group command indicator.
-        self.rolllog_log(LOG_TMI, '<command>', 'checking commands')
-
-        # Read and handle all the commands we've been sent.
-        while 42:
-            # Get the command, return if there wasn't one.
-            cmd, data = self.rollmgr_getcmd(5)
-            if not cmd:
-                return
-
-            self.rolllog_log(LOG_TMI, '<command>', 'cmd   - "%s"' % cmd)
-            if data:
-                self.rolllog_log(LOG_TMI, '<command>', 'data  - "%s"' % data)
-
-            # Deal with the command as zone-related or as a group command.
-            if cmd.startswith(gstr):
-                cmd = cmd[len(gstr):]
-                self.groupcmd(cmd, data)
-            else:
-                if self.singlecmd(cmd, data):
-                    break
-            self.rollmgr_closechan()
-
-
-    def intcmd_handler(self):
-        '''
-        Routine: intcmd_handler()
-        Purpose: Handle an interrupt and get a command.
-        '''
-        self.rolllog_log(LOG_TMI, '<command>', 'rollover manager:  got a command interrupt\n')
-        self.controllers(False)
-        self.commander()
-        self.controllers(True)
-
-    def halt_handler(self):
-        '''
-        Routine: halt_handler()
-        Purpose: Handle the "halt" command.
-        '''
-        self.rolllog_log(LOG_ALWAYS, '', 'rollover manager shutting down...\n')
-        # self.rollrec_write(self.rollrecfile)  # dump the current file with commands
-        # self.rollmgr_rmid()
-        sys.exit(0)
-
-    def queue_int_handler(self):
-        '''
-        Routine: queue_int_handler()
-        Purpose: Remember that a sig INT was received for later processing.
-        '''
-        self.queued_int = True
-
-    def queue_hup_handler(self):
-        '''
-        Routine: queue_hup_handler()
-        Purpose: Remember that a sig HUP was received for later processing.
-        '''
-        self.queued_hup = True
-
-    def controllers(self, onflag):
-        '''
-        Routine: controllers()
-        Purpose: Initialize handlers for our externally provided commands.
-        onflag - Handler on/off flag.
-        '''
-        # Set the signal handlers that will manage incoming commands.
-        if onflag:
-            if self.queued_int:
-                self.queued_int = False
-                self.halt_handler()
-            if self.queued_hup:
-                self.queued_hup = False
-                self.intcmd_handler()
-            signal.signal(
-                signal.SIGHUP,
-                lambda signalnum, frame: self.intcmd_handler())
-            signal.signal(
-                signal.SIGINT,
-                lambda signalnum, frame: self.halt_handler())
-        else:
-            signal.signal(
-                signal.SIGHUP,
-                lambda signalnum, frame: self.queue_hup_handler())
-            signal.signal(
-                signal.SIGINT,
-                lambda signalnum, frame: self.queue_int_handler())
-
-    def sleeper(self):
-        '''
-        Routine: sleeper()
-        Purpose: Sleep for a specific amount of time.  This will take into
-                 account interrupts we've taken from rollctl.
-                 We may be overridden by a rollctl command.
-        '''
-        if self.sleep_override:
-            return
-        self.rolllog_log(LOG_TMI, '', 'sleeping for %s seconds' % self.sleeptime)
-        self.sleepcnt = 0
-        while self.sleepcnt < self.sleeptime:
-            nap = self.sleeptime - self.sleepcnt
-            self.sleepcnt += nap
-            time.sleep(nap)
-
-    def signer(self, rname, zsflag, krr):
+    def signer(self, rname, zsflag, krr=None):
         '''
         Signs a zone with a specified ZSK.
         On success, the return value of the zone-signing command is returned.
@@ -816,9 +982,8 @@ class RollerD(
         if not ret:
             # Error logging is done in runner(), rather than here
             # or in zoneerr().
-            pass
-            # self.skipnow(rname)
-            # self.zoneerr(rname, rrr)
+            rrr.is_active = False
+            rrr.zoneerr()
         else:
             rrr['signed'] = 1
             self.wassigned = True
@@ -862,249 +1027,196 @@ class RollerD(
         # Re-read current keyrec file and return a success/fail indicator.
         return ret == 0
 
-    def rollkeys(self):
+    def rrfchk(self):
         '''
-        Go through the zones in the rollrec file and start rolling
-        the ZSKs and KSKs for those which have expired.
-        '''
-        # Let the display program know we're starting a roll cycle.
-        # NOT IMPLEMENTED
+        This routine performs initial checking of the rollrec file.
+        Several errors and problems are checked for in each rollrec
+        marked as a roll rollrec.
 
-        # Check the zones in the rollrec file to see if they're ready
-        # to roll.
+        Errors:
+            The following errors are checked:
+                - the zonefile exists
+                - the keyrec file exists
+
+                If any of these are violated, the rollrec's type will
+                be changed to a skip rollrec.  This prevents lots of
+                unnecessary repeated log messages of an invalid rollrec.
+
+        Problems:
+            The following problems are checked:
+                - no zonename field exists
+
+            If any of these problems are found, they will be fixed.
+        '''
+        modified = False  # Modified flag.
+
+        # Return failure if the rollrec file is bad.
+        if not self.rrfokay(''):
+            return False
+
+        # Get the current contents of the rollrec file.
+        self.rollrec_lock()
+        self.rollrec_read()
+
+        # For each roll rollrec, check if its zonefile and keyrec file exist.
+        # If not, we'll change it to being a skip rollrec.
         for rname in self.rollrec_names():
-            # Close down if we've received an INT signal.
-            if self.queued_int:
-                self.rolllog_log(LOG_INFO, rname, 'received immediate shutdown command')
-                self.halt_handler()
-
-            # Return to our execution directory.
-            self.rolllog_log(LOG_TMI, rname, 'execution directory:  chdir(%s)' % self.xqtdir)
-            os.chdir(self.xqtdir)
-
-            # Ensure the logging level is set correctly.
-            self.loglevel = self.loglevel_save
-
             # Get the rollrec for this name.  If it doesn't have one,
             # whinge and continue to the next.
-            # (This should never happen, but...)
             rrr = self.rollrec_fullrec(rname)
-
-            # Set the logging level to the rollrec entry's level (if it
-            # has one) for the duration of processing this zone.
-            self.loglevel_save = self.loglevel
-            if 'loglevel' in rrr:
-                llev = self.rolllog_num(rrr['loglevel'])
-                if llev != -1:
-                    self.loglevel = rrr['loglevel']
-                    self.loglevel = self.rolllog_level(self.loglevel, 0)
-                else:
-                    self.rolllog_log(
-                        LOG_ERR, rname,
-                        'invalid rollrec logging level "%s"' % rrr['loglevel'])
-
-            # Don't do anything with skip records.
-            if not rrr.is_active:
-                self.rolllog_log(LOG_TMI, rname, 'is a skip rollrec')
+            if not rrr:
+                rolllog_log(LOG_ERR, rname, 'no rollrec defined for zone')
                 continue
 
-            # If this rollrec has a directory record, we'll move into that
-            # directory for execution; if it doesn't we'll stay put.
-            # If the chdir() fails, we'll skip this rollrec.
-            if rrr.get('directory'):
-                if (os.path.exists(rrr['directory']) and
-                        os.path.isdir(rrr['directory'])):
-                    os.chdir(rrr['directory'])
-                    self.rolllog_log(LOG_TMI, rname, 'chdir(%s)' % rrr['directory'])
-                else:
-                    continue
+            # Don't look at skip records.
+            if not rrr.is_active:
+                continue
 
-            # If the zone's keyrec file doesn't exist, we'll try to
-            # create it with a simple zonesigner call.
-            if not rrr.keyrec():
-                self.rolllog_log(
-                    LOG_ERR, rname,
-                    'keyrec "%s" does not exist; running initial zonesigner' %
-                    rrr.keyrec_path)
-                self.signer(rname, 'initial', 0)
+            # Check for a directory.  We'll use rollerd's execution
+            # directory if one isn't defined.
+            prefix = rrr.get('directory', self.xqtdir)
 
-            # Ensure the record has the KSK and ZSK phase fields.
-            # if 'kskphase' not in rrr:
-            #     self.rolllog_log(LOG_TMI, rname, 'new kskphase entry')
-            #     # self.nextphase(rname, rrr, 0, 'KSK')
-            # if 'zskphase' not in rrr:
-            #     self.rolllog_log(LOG_TMI, rname, 'new zskphase entry')
-            #     self.nextphase(rname, rrr, 0, 'ZSK')
-
-            # Turn off the flag indicating that the zone was signed.
-            self.wassigned = 0
-
-            # If this zone's current KSK has expired, we'll get it rolling.
-            if self.ksk_expired(rname, rrr, 'kskcur'):
-                if int(rrr['zskphase']) == 0:
-                    self.rolllog_log(LOG_TMI, rname, 'current KSK has expired')
-                self.ksk_phaser(rname, rrr)
-            else:
-                self.rolllog_log(LOG_TMI, rname, 'current KSK still valid')
-
-
-
-
-
-            ########################################################################
+            ###################################################################
             # NOT IMPLEMENTED
-            ########################################################################
+            ###################################################################
+
+        return True
 
 
-
-        # Ensure the logging level is set correctly.
-        self.loglevel = self.loglevel_save
-        # self.loglevel = self.rolllog_level(self.loglevel, 0)
-
-    def full_list_event_loop(self):
+    def nextphase(self, rname, rrr, phase, phasetype):
         '''
-        Routine: full_list_event_loop()
-        Purpose: Rollover event handler -- full queue.
-                 Every $sleeptime seconds, it checks the entire set of rollrecs
-                 to see if any rollover actions must be taken.
+        Moves a rollrec into the next rollover phase, setting both the
+        phase number and the phase start time.
 
-                 This method works fine for small numbers of zones; it gets
-                 unwieldy as the number of managed zones increases.
+        @param rname: Name of rollrec.
+        @type rname: str
+        @param rrr: Rollrec reference.
+        @type rrr: Roll
+        @param phase: New phase.
+        @type phase: str
+        @param phasetype: Type of rollover.
+        @type phasetype: str
         '''
-        while 42:
-            # Turn off signal handlers so they don't interrupt us
-            # while we're running the queue.
-            self.controllers(False)
-            self.sleep_override = False
-
-            # Return to our execution directory.
+        # Give a log message about this rollover phase.
+        if phase == 1:
             self.rolllog_log(
-                LOG_TMI, '',
-                'execution directory:  chdir(%s)' % self.xqtdir)
-            os.chdir(self.xqtdir)
-
-            # If we have a valid rollrec file, we'll read its contents
-            # and handle for expired KSKs and ZSKs.
-            # if self.rrfchk(self.rollrecfile):
-            if self.rrfokay(self.rollrecfile):
-                # Get the contents of the rollrec file and check
-                # for expired KSKs and ZSKs.
-                self.rollrec_lock()
-                if self.rollrec_read(self.rollrecfile):
-                    # Check the zones for expired ZSKs.  We'll also
-                    # keep track of how long it takes to check the
-                    # ZSKs.
-                    kronos1 = datetime.datetime.now()
-                    self.rollkeys()
-                    kronos2 = datetime.datetime.now()
-                    kronodiff = kronos2 - kronos1
-                    kronos = '%d seconds' % kronodiff.seconds
-                    self.rolllog_log(LOG_TMI, '<timer>', 'keys checked in %s' % kronos)
-
-                    # Save the current rollrec file state.
-                    self.rollrec_close()
-                self.rollrec_unlock()
-
-            # Check for user commands.
-            self.commander()
-
-            # We'll stop now if we're only running the queue once.
-            if self.singlerun:
-                self.rolllog_log(
-                    LOG_INFO, '',
-                    'rollover manager shutting down at end of single-run execution')
-                self.halt_handler()
-                sys.exit(0)
-
-            # Turn on our signal handlers and then take a nap.
-            self.controllers(True)
-            self.sleeper()
-
-    def main(self):
-        '''
-        Do Everything.
-
-        basic steps:
-            while rollrec file is not empty
-                read rollrec file
-
-                for each rollrec in the rollrec file
-                    handle according to its phase
-        '''
-        # Parse our command line into an options hash.
-        self.opts = self.get_options(self.opts) or self.usage()
-
-        # If there's a -dtconfig command line option, we'll use that,
-        self.dtconfig = '/etc/dnssec-tools/dnssec-tools.conf'
-        if self.opts[OPT_DTCONF] and os.path.exists(self.opts[OPT_DTCONF]):
-            self.dtconfig = self.opts[OPT_DTCONF]
-
-        # Check our options and arguments.
-        self.optsandargs()
-
-        # Check our required external commands.
-        self.getprogs()
-
-        # Daemonize ourself.
-        if not self.singlerun and not self.foreground:
-            pid = os.fork()
-            if pid:
-                sys.exit(0)
-            os.setsid()
-
-        # Ensure we're the only rollerd running and drop a pid file.
-        if not self.rollmgr_dropid():
-            print('another pyrollerd is already running', file=sys.stderr)
-            self.rolllog_log(LOG_ALWAYS, '', 'another pyrollerd tried to start')
-            self.cleanup()
-
-        # If it hasn't been set yet, get the pathname for zonesigner.
-        if not self.zonesigner:
-            print(
-                'no absolute path defined for zonesigner; exiting...',
-                file=sys.stderr)
-            self.rolllog_log(
-                LOG_ALWAYS, '',
-                'no absolute path defined for zonesigner; exiting...')
-            self.cleanup()
-
-        # Tell the log we're up.
-        self.bootmsg(True)
-
-        # Mark the domains as being under our control.
-        self.eminent_domains(self.rollrecfile)
-
-        # Set up the command channel.
-        ch_ret = self.rollmgr_channel(True)
-        if ch_ret != 1:
-            errs = (
-                'Unable to connect to the server.',
-                'Unable to create a Unix socket.',
-                'Unable to bind to the Unix socket.',
-                'Unable to change the permissions on the Unix socket.',
-                'Unable to listen on the Unix socket.',
-                'Communications socket name was longer than allowed for a Unix socket.',
-            )
-            self.rolllog_log(
-                LOG_FATAL, '',
-                'unable to create control communications channel:  %s' %
-                errs[ch_ret])
-            sys.exit(3)
-
-        # Main event loop.  If the rollrec file is okay, we'll read it,
-        # check its zones -- rolling 'em if need be -- and saving its state.
-        # We'll always check for user commands and then sleep a bit.
-        if self.eventmaster == EVT_FULLLIST:
-            self.rolllog_log(LOG_ALWAYS, '', ' ')
-            self.full_list_event_loop()
-        elif self.eventmaster == EVT_QUEUE_SOON:
-            self.rolllog_log(LOG_ALWAYS, '', ' ')
-            self.queue_soon_event_loop()
+                LOG_TMI, rname, 'starting %s rollover' % phasetype)
         else:
             self.rolllog_log(
-                LOG_FATAL, '',
-                'invalid event handler specified; cannot continue')
-            print(
-                'pyrollerd:  invalid event handler specified; cannot continue',
-                file=sys.stderr)
-            sys.exit(1)
+                LOG_TMI, rname, 'moving to %s phase %d' %
+                (phasetype, phase))
+
+        # This is the source of the log messages that look like
+        # "KSK phase 3" and "ZSK phase 4".
+        self.rolllog_log(LOG_PHASE, rname, '%s phase %d' % (phasetype, phase))
+
+        # Get the latest and greatest rollrec file.
+        # self.rollrec_close()
+        # self.rollrec_read()
+
+        # Change the zone's phase and plop it on disk.
+        rrr['%sphase' % phasetype.lower()] = str(phase)
+        rollrec_write()
+        # rollrec_close()
+        # rollrec_read()
+
+        # Get the rollin' key's keyrec for our zone.
+        krec = rrr.keyrec()
+        krname = krec[rname]['%scur' % phasetype]
+        setrec = getattr(rrr.keyrec()[rname], '%scur' % phasetype)
+        if not setrec:
+            self.rolllog_log(
+                LOG_ERR, rname,
+                'unable to find a keyrec for the %scur phase signing set in "%s"' %
+                (phasetype, krname))
+            return
+
+        # Make sure we've got an actual set keyrec and keys.
+        if not isinstance(setrec, KeySet):
+            self.rolllog_log(
+                LOG_ERR, rname,
+                '"%s"\'s keyrec is not a set keyrec; unable to move to '
+                '%s phase %d' % (krname, phasetype, phase))
+            return
+        if not setrec.keys:
+            self.rolllog_log(
+                LOG_ERR, rname,
+                '"%s" has no keys; unable to move to %s phase %d' %
+                (krname, phasetype, phase))
+            return
+
+        # Find the key with the shortest lifetime.
+        exptime = setrec.minlife_key().life
+
+        # Send phase info to the display program.
+        if phase != 0:
+            exptime = rrr['maxttl'] * 2
+
+        chronostr = '% secs' % exptime
+        self.rolllog_log(
+            LOG_INFO, rname,
+            '    %s expiration in %s' % (phasetype, chronostr))
+
+        # Reset the phasestart field if we've completed a rollover cycle.
+        if phase == 0:
+            rollrec_settime(rname)
+            rollrec_write()
+
+    def zonemodified(self, rrr, rname):
+        '''
+        Checks if a zone file has been modified more recently than
+        its signed version.  If so, then the zone file will be
+        re-signed -- without any keys created or other rollover
+        actions taken.
+
+        The "more recent" check is performed by comparing the date
+        of last modification for the two zone files.  If the unsigned
+        zonefile's date is greater than the signed zonefile's date,
+        then it is assumed the unsigned zonefile was modified.
+
+        This only works if the signed and unsigned zonefiles are
+        in different files.
+
+        @param rrr: Rollrec reference.
+        @type rrr: RollRec
+        @param rname: Zone under consideration.
+        @type rname: str
+        '''
+        krf = rrr.keyrec()  # Zone's keyrec file.
+
+        # Go no further here if we aren't autosigning.
+        if not self.autosign:
+            return
+
+        # Get the name of the zonefile.
+        zfu = krf[rname]['zonefile']
+
+        # Now we'll get the name of the signed zonefile.
+        zfs = krf[rname]['signedzone']
+        if zfs != rrr['zonefile']:
+            self.rolllog_log(
+                LOG_ERR, rname,
+                'rollrec and keyrec disagree about name of signed zone file')
+            self.rolllog_log(
+                LOG_ERR, rname,
+                "  rollrec's signed zone file - %s" % rrr['zonefile'])
+            self.rolllog_log(
+                LOG_ERR, rname,
+                "  keyrec's signed zone file  - %s" % zfs)
+
+        # Get the last modification time of the signed zonefile.
+        zfutime = os.stat(krf[rname].zonefile_path).st_mtime
+
+        # Get the last modification time of the unsigned zonefile.
+        zfstime = os.stat(krf[rname].signedzone_path).st_mtime
+
+        # Check the last modification times, and sign the zonefile if it's
+        # been changed more recently than the unsigned zonefile.
+        if zfutime > zfstime:
+            self.rolllog_log(LOG_PHASE, rname, 'zonefile modified; re-signing')
+
+            # Sign -- just sign -- the zone.
+            if signer(rname, rrr.phaseargs, krf) == 0:
+                self.rolllog_log(LOG_TMI, rname, 'rollerd signed zone')
+            else:
+                self.rolllog_log(LOG_ERR, rname, 'unable to sign zone')

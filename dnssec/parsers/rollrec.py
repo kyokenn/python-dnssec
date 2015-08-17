@@ -15,11 +15,16 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
 import collections
+import datetime
 import os
 import re
+import time
 
 from .abstract import TabbedConf
 from .keyrec import KeyRec
+
+DATETIME_FORMAT = '%a %b %d %H:%M:%S %Y'
+# DATETIME_FORMAT = '%c'
 
 
 class Roll(TabbedConf):
@@ -29,13 +34,13 @@ class Roll(TabbedConf):
     _zone = None
     _keys = None
 
-    zg_commands = (
-        'rollcmd_dspub',
-        'rollcmd_rollksk',
-        'rollcmd_rollzone',
-        'rollcmd_rollzsk',
-        'rollcmd_skipzone',
-    )
+    # zg_commands = (
+    #     'rollcmd_dspub',
+    #     'rollcmd_rollksk',
+    #     'rollcmd_rollzone',
+    #     'rollcmd_rollzsk',
+    #     'rollcmd_skipzone',
+    # )
 
     name = property(
         lambda self: self._name,
@@ -56,8 +61,9 @@ class Roll(TabbedConf):
             self.name, ''.join(map(lambda x: self._format(*x), self.items())))
 
     def _full_path(self, key):
-        if 'directory' in self:
-            return os.path.join(self['directory'], self[key])
+        directory = self.get('directory', self._directory)
+        if directory:
+            return os.path.join(directory, self[key])
         else:
             return self[key]
 
@@ -76,45 +82,89 @@ class Roll(TabbedConf):
             keyrec.read(path)
             return keyrec
 
-    def zone(self):
-        if not self._zone:
-            zones = self.keyrec().zones(
-                filter_=lambda x: x.name() == self.name())
-            if len(zones) == 1:
-                self._zone = zones[0]
-        return self._zone
+    # def zone(self):
+    #     if not self._zone:
+    #         zones = self.keyrec().zones(
+    #             filter_=lambda x: x.name() == self.name())
+    #         if len(zones) == 1:
+    #             self._zone = zones[0]
+    #     return self._zone
 
-    def keys(self, filter_=None):
-        if not self._keys:
-#            self._keys = self.keyrec().keys(
-#                filter_=lambda x: x[1].zone().name() == self.zone().name())
-            self._keys = self.keyrec().keys()
-        if filter_:
-            return filter(lambda x: filter_(x[1]), self._keys)
-        return self._keys
+#     def keys(self, filter_=None):
+#         if not self._keys:
+# #            self._keys = self.keyrec().keys(
+# #                filter_=lambda x: x[1].zone().name() == self.zone().name())
+#             self._keys = self.keyrec().keys()
+#         if filter_:
+#             return filter(lambda x: filter_(x[1]), self._keys)
+#         return self._keys
+
+    @property
+    def kskphase(self):
+        return int(self['kskphase'])
+
+    @property
+    def zskphase(self):
+        return int(self['zskphase'])
 
     @property
     def phasetype(self):
-        if int(self['kskphase']) != 0:
+        if self.kskphase != 0:
             return 'ksk'
-        elif int(self['zskphase']) != 0:
+        elif self.zskphase != 0:
             return 'zsk'
 
     @property
+    def phaseargs(self):
+        if self.kskphase != 0:
+            return 'KSK phase %d -signonly' % self.kskphase
+        elif self.zskphase != 0:
+            return 'ZSK phase %d -signonly' % self.zskphase
+        else:
+            return ' -signonly'
+
+    @property
     def phase(self):
-        if self.phasetype():
-            return int(self['%sphase' % self.phasetype()])
+        if self.phasetype:
+            return int(self['%sphase' % self.phasetype])
+
+    def zoneerr(self):
+        # Get the zone's maximum error count.
+        maxerrs = int(self.get('maxerrors', '0'))
+
+        # If there's a maximum error count set for this zone, we'll increase
+        # the count and see if we need to stop worrying about this zone.
+        if maxerrs > 0:
+            # Increment the zone's maximum error count.
+            curerrs = int(self.get('curerrors', '0')) + 1
+
+            # Save the new value.
+            self['curerrors'] = str(curerrs)
+            self.save()
+
+            # If we've exceeded the maximum error count, change the zone
+            # to a skip zone.
+            if curerrs > maxerrs:
+                self.is_active = False
+                self.save()
+
+    def rollstamp(self, prefix):
+        t = int(time.time())
+        self['%s_rolldate' % prefix] = (
+            datetime.datetime.fromtimestamp(t).strftime(DATETIME_FORMAT))
+        self['%s_rollsecs' % prefix] = str(t)
+        self.save()
 
     @property
     def phase_description(self):
-        if self.phasetype() == 'zsk':
+        if self.phasetype == 'zsk':
             return {
                 1: 'wait for old zone data to expire from caches',
                 2: 'sign the zone with the KSK and Published ZSK',
                 3: 'wait for old zone data to expire from caches',
                 4: 'adjust keys in keyrec and sign the zone with new Current ZSK',
-            }.get(self.phase(), None)
-        elif self.phasetype() == 'ksk':
+            }.get(self.phase, None)
+        elif self.phasetype == 'ksk':
             return {
                 1: 'wait for cache data to expire',
                 2: 'generate a new (published) KSK and load zone',
@@ -123,12 +173,11 @@ class Roll(TabbedConf):
                 5: 'wait for parent to publish DS record',
                 6: 'wait for cache data to expire',
                 7: 'roll the KSKs and load the zone',
-            }.get(self.phase(), None)
+            }.get(self.phase, None)
 
     @property
     def phasestart_date(self):
-        return datetime.datetime.strptime(self['phasestart'], '%a %b %d %H:%M:%S %Y')
-        # return datetime.datetime.strptime(self['phasestart'], '%c')
+        return datetime.datetime.strptime(self['phasestart'], DATETIME_FORMAT)
 
     @property
     def holddowntime_duration(self):
@@ -193,8 +242,9 @@ class RollRec(TabbedConf):
     def __str__(self):
         return '\n'.join('%s' % roll for roll in self.values())
 
-    def read(self, path):
+    def read(self, path, directory=None):
         self._path = path
+        self._directory = directory
         f = open(path, 'r')
         roll = None
         for i in f.readlines():
@@ -204,6 +254,7 @@ class RollRec(TabbedConf):
                     key, value = match.group(1), match.group(2)
                     if key in ('roll', 'skip'):
                         roll = Roll()
+                        roll._parent = self
                         roll.name = value
                         roll.is_active = key == 'roll'
                         self[value] = roll
