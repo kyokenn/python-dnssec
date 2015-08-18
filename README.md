@@ -59,4 +59,5 @@ Only 10% of original rollerd features has been implemented at this moment:
 * Command line options
 * Daemonization and rollctl management interface (only "status" command is implemented atm)
 * Initial zone signing
-* KSK Phase 1-5
+* KSK Phase 1-7
+* Automatic keyset transfer in KSK phase 4 (using gandi.net API)
