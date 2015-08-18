@@ -249,11 +249,16 @@ class KSKMixin(object):
         @param rrr: Reference to rollrec.
         @type rrr: Roll
         '''
-        if self.auto:
+        if self.auto and self.provider and self.provider_key:
             self.rolllog_log(
                 LOG_ERR, rname,
-                'KSK phase 4:  automatic keyset transfer not yet supported')
-            return -1
+                'KSK phase 4:  transfer new keyset to the parent')
+            ret = rrr.dspub(self.provider, self.provider_key)
+            if not ret:
+                self.rolllog_log(
+                    LOG_ERR, rname,
+                    'KSK phase 4:  automatic keyset transfer failed')
+                return -1
         elif (self.dtconf.get('admin-email') == 'nomail' or
                 rrr.get('administrator') == 'nomail'):
             self.rolllog_log(
@@ -300,18 +305,87 @@ class KSKMixin(object):
         @param rrr: Reference to rollrec.
         @type rrr: Roll
         '''
-        if self.auto:
+        if self.auto and self.provider and self.provider_key:
             self.rolllog_log(
-                LOG_ERR, rname,
-                'KSK phase 5:  automatic DS-record determination not yet supported')
-            return -1
-            # TODO: publish DS and move to phase 6
-
-            # return 6
+                LOG_INFO, rname,
+                'KSK phase 5:  automatic keyset transfer is enabled, skipping phase')
+            return 6
         else:
             self.rolllog_log(
                 LOG_INFO, rname,
                 'KSK phase 5:  waiting for parental publication of DS record')
 
-        # Stay at phase 5
         return 5
+
+    def ksk_phase7(self, rname, rrr, *skipargs):
+        '''
+        Perform the phase 7 steps of the KSK rollover.  These are:
+            - delete the Current KSK from the zone file
+            - move the Published KSK to be the Current KSK
+            - sign the zone file with the (new) Current KSK
+            - load the zone
+            - archive keys that need to be archived
+            - move to phase 0
+            - save a timestamp for rollover completion
+
+        These first three steps are handled by zonesigner.
+
+        @param rname: Name of rollrec.
+        @type rname: str
+        @param rrr: Reference to rollrec.
+        @type rrr: Roll
+        '''
+        # Get the rollrec's associated keyrec file and ensure that it exists.
+        krr = rrr.keyrec()
+        if not rrr.get('keyrec'):
+            self.rolllog_log(
+                LOG_ERR, rname, 'KSK phase 7:  no keyrec for zone specified')
+            return -1
+        if not krr:
+            self.rolllog_log(
+                LOG_ERR, rname,
+                'KSK phase 7:  keyrec "%s" for zone does not exist' %
+                rrr.keyrec_path)
+            return -1
+
+        # Roll the Published KSK to the Current KSK.
+        ret = self.signer(rname, 'KSK phase 7', krr)
+        if not ret:
+            self.rolllog_log(
+                LOG_ERR, rname,
+                'KSK phase 7:  unable to roll the Published KSK to the '
+                'Current KSK')
+            return -1
+
+        # Reload the zone.
+        ret = self.loadzone(self.rndc, rname, rrr, 'KSK phase 7')
+        if not ret:
+            self.rolllog_log(
+                LOG_ERR, rname,
+                'KSK phase 7:  unable to reload zone')
+
+        # Set up the keyarch command we'll be executing.
+        keyarch_cmd = (
+            '%(keyarch)s -dtconf %(dtcf)s -zone %(zname)s %(krf)s -verbose' % {
+            'keyarch': self.keyarch,
+            'dtcf': self.dtcf,
+            'zname': rrr['zonename'],
+            'krf': rrr.keyrec_path,
+        })
+        self.rolllog_log(LOG_TMI, rname, 'keyarch:  running <%s>' % keyarch_cmd)
+        ret = self.runner(rname, keyarch_cmd, krr, True)
+        if not ret:
+            self.rolllog_log(
+                LOG_ERR, rname, 'KSK phase 7:  unable to archive KSK keys')
+            rrr.zoneerr()
+            return -1
+        else:
+            self.rolllog_log(
+                LOG_INFO, rname, 'KSK phase 7:  zone, key files archived')
+            rrr.clearzoneerr()
+
+        # Set a timestamp for the completion of the KSK roll.
+        rrr.rollstamp('ksk')
+
+        # Returning to normal rollover state.
+        return 8

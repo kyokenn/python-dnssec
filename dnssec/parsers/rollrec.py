@@ -126,6 +126,9 @@ class Roll(TabbedConf):
             if curerrs > maxerrs:
                 self.is_active = False
 
+    def clearzoneerr(self):
+        self['curerrors'] = '0'
+
     def rollstamp(self, prefix):
         t = int(time.time())
         self['%s_rolldate' % prefix] = (
@@ -183,6 +186,27 @@ class Roll(TabbedConf):
         rcode = p.wait()
         out = p.stdout.read().decode('utf8')
         return rcode
+
+    def dspub(self, provider, api_key):
+        if provider == 'gandi.net':
+            from ..api.gandi import APIClient
+            apiclient = APIClient(api_key)
+            keyrec = self.keyrec()
+            keys = []
+            zskcur = keyrec[self['zonename']]._zskcur
+            zskpub = keyrec[self['zonename']]._zskpub
+            kskcur = keyrec[self['zonename']]._kskcur
+            kskpub = keyrec[self['zonename']]._kskpub
+            if zskcur:
+                keys += zskcur.keys
+            if zskpub:
+                keys += zskpub.keys
+            if kskcur:
+                keys += kskcur.keys
+            if kskpub:
+                keys += kskpub.keys
+            return apiclient.dspub(self['zonename'], keys)
+        return False
 
     @property
     def phase_description(self):

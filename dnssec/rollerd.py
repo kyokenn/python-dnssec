@@ -115,6 +115,8 @@ class RollerD(
     display = False  # Do display processing.
 
     auto = False  # automatic keyset transfer
+    provider = None  # DNSSEC provider
+    provider_key = ''  # DNSSEC provider API KEY
 
     boottime = datetime.datetime.now()  # Timestamp of rollerd's start time.
 
@@ -679,8 +681,11 @@ class RollerD(
         if self.opterrs > 0:
             sys.exit(1)
 
-        # Start up our display program if -display was given.
-        # NOT IMPLEMENTED
+        # autopublish settings for KSK phase 5
+        self.auto = self.dtconf.get('roll_auto') == '1'
+        if self.dtconf.get('roll_provider', '') in ('gandi.net',):
+            self.provider = self.dtconf.get('roll_provider')
+        self.provider_key = self.dtconf.get('roll_provider_key')
 
     def getprogs(self):
         '''
@@ -806,7 +811,7 @@ class RollerD(
         # self.rolllog_log(LOG_INFO, rname, 'executing "%s"' % cmdstr)
 
         # Have zonesigner sign the zone for us.
-        ret = self.runner(rname, cmdstr, rrr['keyrec'], 0)
+        ret = self.runner(rname, cmdstr, rrr['keyrec'], False)
         if not ret:
             # Error logging is done in runner(), rather than here
             # or in zoneerr().
@@ -848,7 +853,8 @@ class RollerD(
 
         # If the error flag is set and the command exited with an error,
         # we'll log the output.
-        if not negerrflag and rcode != 0:
+        # if not negerrflag and rcode != 0:
+        if rcode != 0:
             self.rolllog_log(
                 LOG_ERR, rname, 'execution error for command "%s"' % cmd)
             self.rolllog_log(LOG_ERR, rname, 'error return - %d' % rcode)

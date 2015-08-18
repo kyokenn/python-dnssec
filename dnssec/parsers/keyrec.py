@@ -82,7 +82,6 @@ class Zone(Section):
         '''
         return self._zskpub
 
-
     @property
     def kskcur(self):
         '''
@@ -137,7 +136,7 @@ class Key(Section):
 
     def _get_contents(self):
         if not self._contents:
-            f = open(self['keypath'])
+            f = open(self.key_path)
             self._contents = ''.join(
                 x.strip('\n ')
                 for x in f.readlines()
@@ -158,6 +157,7 @@ class Key(Section):
     def set_zone(self, zone):
         self._zone = zone
 
+    @property
     def flags(self):
         '''
         256 (ZSK) or 257 (KSK)
@@ -166,16 +166,17 @@ class Key(Section):
         return {
             'zsk': 256,
             'ksk': 257,
-        }.get(self.keytype(), 0)
+        }.get(self.keytype, 0)
 
+    @property
     def protocol(self):
         return int(self._dnskey_data(2))
 
+    @property
     def algorithm(self):
         '''
         Algorithm number, see IANA Assignments:
-        http://www.iana.org/assignments/dns-sec-alg-numbers/
-        dns-sec-alg-numbers.xml
+        http://www.iana.org/assignments/dns-sec-alg-numbers/dns-sec-alg-numbers.xml
         '''
         return int(self._dnskey_data(3))
 
@@ -186,6 +187,9 @@ class Key(Section):
 
     def public_key_source(self):
         return base64.b64decode(self.public_key())
+
+    def private_key(self):
+        raise NotImplemented()
 
     @property
     def keytype(self):
@@ -198,6 +202,10 @@ class Key(Section):
     @property
     def life(self):
         return int(self['%slife' % self.keytype])
+
+    @property
+    def keytag(self):
+        return int(re.match(r'.+\+(\d+)\+(\d+)', self.name).group(2))
 
     def gendate(self):
         return datetime.datetime.utcfromtimestamp(
