@@ -14,7 +14,8 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
-from dns import rdatatype, zone
+import dns.rdatatype
+import dns.zone
 
 import base64
 import collections
@@ -50,6 +51,7 @@ class Zone(Section):
     _zskcur = None
     _zskpub = None
     _kskcur = None
+    _kskpub = None
 
     def _full_path(self, key):
         return os.path.join(self._directory, self[key])
@@ -250,15 +252,7 @@ class KeyRec(TabbedConf):
                         section[key] = value
         # link objects together
         for name, section in self.items():
-            if type(section) == Zone:
-                # link zone with sets
-                if 'zskcur' in section:
-                    section._zskcur = self[section['zskcur']]
-                if 'zskpub' in section:
-                    section._zskpub = self[section['zskpub']]
-                if 'kskcur' in section:
-                    section._kskcur = self[section['kskcur']]
-            elif type(section) == KeySet:
+            if type(section) == KeySet:
                 # link set with zone
                 if 'zonename' in section:
                     section._zone = self[section['zonename']]
@@ -267,6 +261,17 @@ class KeyRec(TabbedConf):
                     section._keys = []
                     for key in section['keys'].split(' '):
                         section._keys.append(self[key])
+                # link zone with set
+                if section['set_type'] == 'zskcur':
+                    self[section['zonename']]._zskcur = section
+                if section['set_type'] == 'zskpub':
+                    self[section['zonename']]._zskpub = section
+                if section['set_type'] == 'zsknew':
+                    self[section['zonename']]._zsknew = section
+                if section['set_type'] == 'kskcur':
+                    self[section['zonename']]._kskcur = section
+                if section['set_type'] == 'kskpub':
+                    self[section['zonename']]._kskpub = section
             elif type(section) == Key:
                 # link key with zone
                 if 'zonename' in section:

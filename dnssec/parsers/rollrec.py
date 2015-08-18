@@ -16,9 +16,14 @@
 
 import collections
 import datetime
+import itertools
 import os
 import re
+import shlex
+import subprocess
 import time
+
+import dns.zone
 
 from .abstract import TabbedConf
 from .keyrec import KeyRec
@@ -33,14 +38,6 @@ class Roll(TabbedConf):
     _keyrec = None
     _zone = None
     _keys = None
-
-    # zg_commands = (
-    #     'rollcmd_dspub',
-    #     'rollcmd_rollksk',
-    #     'rollcmd_rollzone',
-    #     'rollcmd_rollzsk',
-    #     'rollcmd_skipzone',
-    # )
 
     name = property(
         lambda self: self._name,
@@ -75,30 +72,6 @@ class Roll(TabbedConf):
     def keyrec_path(self):
         return self._full_path('keyrec')
 
-    def keyrec(self):
-        path = self.keyrec_path
-        if os.path.exists(path) and os.path.isfile(path):
-            keyrec = KeyRec()
-            keyrec.read(path)
-            return keyrec
-
-    # def zone(self):
-    #     if not self._zone:
-    #         zones = self.keyrec().zones(
-    #             filter_=lambda x: x.name() == self.name())
-    #         if len(zones) == 1:
-    #             self._zone = zones[0]
-    #     return self._zone
-
-#     def keys(self, filter_=None):
-#         if not self._keys:
-# #            self._keys = self.keyrec().keys(
-# #                filter_=lambda x: x[1].zone().name() == self.zone().name())
-#             self._keys = self.keyrec().keys()
-#         if filter_:
-#             return filter(lambda x: filter_(x[1]), self._keys)
-#         return self._keys
-
     @property
     def kskphase(self):
         return int(self['kskphase'])
@@ -115,6 +88,11 @@ class Roll(TabbedConf):
             return 'zsk'
 
     @property
+    def phase(self):
+        if self.phasetype:
+            return int(self['%sphase' % self.phasetype])
+
+    @property
     def phaseargs(self):
         if self.kskphase != 0:
             return 'KSK phase %d -signonly' % self.kskphase
@@ -123,10 +101,12 @@ class Roll(TabbedConf):
         else:
             return ' -signonly'
 
-    @property
-    def phase(self):
-        if self.phasetype:
-            return int(self['%sphase' % self.phasetype])
+    def keyrec(self):
+        path = self.keyrec_path
+        if os.path.exists(path) and os.path.isfile(path):
+            keyrec = KeyRec()
+            keyrec.read(path)
+            return keyrec
 
     def zoneerr(self):
         # Get the zone's maximum error count.
@@ -140,20 +120,69 @@ class Roll(TabbedConf):
 
             # Save the new value.
             self['curerrors'] = str(curerrs)
-            self.save()
 
             # If we've exceeded the maximum error count, change the zone
             # to a skip zone.
             if curerrs > maxerrs:
                 self.is_active = False
-                self.save()
 
     def rollstamp(self, prefix):
         t = int(time.time())
         self['%s_rolldate' % prefix] = (
             datetime.datetime.fromtimestamp(t).strftime(DATETIME_FORMAT))
         self['%s_rollsecs' % prefix] = str(t)
-        self.save()
+
+    def settime(self):
+        t = int(time.time())
+        self['phasestart'] = (
+            datetime.datetime.fromtimestamp(t).strftime(DATETIME_FORMAT))
+
+    def zone(self):
+        return dns.zone.from_file(
+            self.zonefile_path,
+            origin=self['zonename'], check_origin=False)
+
+    def maxttl(self):
+        rdatasets = reversed(sorted(itertools.chain(
+            *tuple(map(lambda node: node.rdatasets, self.zone().values()))),
+            key=lambda node: node.ttl))
+        rdataset = next(iter(rdatasets), None)
+        # ttl = rdataset and rdataset.ttl or 0
+        ttl = 60  # for debugging
+        self['maxttl'] = str(ttl)
+        return ttl * 2
+
+    def ttlexpire(self):
+        return datetime.datetime.now() >= self.phaseend_date
+
+    def ttlleft(self):
+        ''' Seconds left to expire '''
+        left = self.phaseend_date - datetime.datetime.now()
+        if left.total_seconds() < 0:  # date in future
+            left = datetime.timedelta()
+        return left
+
+    def holddownleft(self):
+        ''' hold-down timer of RFC5011 '''
+        holddowntime = 2 * 30 * 24 * 60 * 60
+        blob = re.match(r'(\d+)D', self['holddowntime'])
+        if blob:
+            holddowntime = int(blob.group(1)) * 24 * 60 * 60
+        left = (
+            self.phasestart_date + datetime.timedelta(seconds=holddowntime) -
+            datetime.datetime.now())
+        if left.total_seconds() < 0:  # date in future
+            left = datetime.timedelta()
+        return left
+
+    def loadzone(self, rndc, rndcopts):
+        ''' Reload the zone '''
+        cmd = '%s %s reload %s' % (rndc, rndcopts, self['zonename'])
+        p = subprocess.Popen(
+            shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        rcode = p.wait()
+        out = p.stdout.read().decode('utf8')
+        return rcode
 
     @property
     def phase_description(self):
@@ -180,6 +209,33 @@ class Roll(TabbedConf):
         return datetime.datetime.strptime(self['phasestart'], DATETIME_FORMAT)
 
     @property
+    def phaseend_date(self):
+        timedelta = None
+        if self.phasetype == 'zsk':
+            timedelta = {
+                1: datetime.timedelta(seconds=self.maxttl()),
+                2: datetime.timedelta(),
+                3: datetime.timedelta(seconds=self.maxttl()),
+                4: datetime.timedelta(),
+            }.get(self.phase, None)
+        elif self.phasetype() == 'ksk':
+            timedelta = {
+                1: datetime.timedelta(seconds=self.maxttl()),
+                2: datetime.timedelta(),
+                3: datetime.timedelta(seconds=self._get_ksk_phase3_length()),
+                4: datetime.timedelta(),
+                5: datetime.timedelta(),
+                6: datetime.timedelta(),
+                7: datetime.timedelta(),
+            }.get(self.phase, None)
+        if timedelta:
+            return self.phasestart_date + timedelta
+
+    @property
+    def phaseend_date(self):
+        return self.phasestart_date + datetime.timedelta(seconds=self.maxttl())
+
+    @property
     def holddowntime_duration(self):
         holddowntime = int(self.get('holddowntime', '0D').replace('D', ''))
         if self.get('holddowntime', '0D').endswith('D'):
@@ -194,29 +250,6 @@ class Roll(TabbedConf):
             # The 60 days comes from the rollerd 60 day default
             length += self.holddowntime_duration() or (60 * 24 * 60 * 60)
         return length
-
-    @property
-    def phaseend_date(self):
-        timedelta = None
-        if self.phasetype() == 'zsk':
-            timedelta = {
-                1: datetime.timedelta(seconds=int(self['maxttl']) * 2),
-                2: datetime.timedelta(),
-                3: datetime.timedelta(seconds=int(self['maxttl']) * 2),
-                4: datetime.timedelta(),
-            }.get(self.phase(), None)
-        elif self.phasetype() == 'ksk':
-            timedelta = {
-                1: datetime.timedelta(seconds=int(self['maxttl']) * 2),
-                2: datetime.timedelta(),
-                3: datetime.timedelta(seconds=self._get_ksk_phase3_length()),
-                4: datetime.timedelta(),
-                5: datetime.timedelta(),
-                6: datetime.timedelta(),
-                7: datetime.timedelta(),
-            }.get(self.phase(), None)
-        if timedelta:
-            return self.phasestart_date() + timedelta
 
     @property
     def phase_progress(self):

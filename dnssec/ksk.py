@@ -16,6 +16,9 @@
 
 import time
 import calendar
+import smtplib
+
+from email.mime.text import MIMEText
 
 from .defs import *
 from .rolllog import *
@@ -133,12 +136,12 @@ class KSKMixin(object):
         waitsecs = rolltime - cronus
         if waitsecs >= 0:
             self.rolllog_log(
-                LOG_EXPIRE, rname, '        expiration in %s' %
+                LOG_EXPIRE, rname, '        KSK expiration in %s' %
                 datetime.timedelta(seconds=waitsecs))
         else:
             waitsecs = cronus - rolltime
             self.rolllog_log(
-                LOG_EXPIRE, rname, '        expired %s ago' %
+                LOG_EXPIRE, rname, '        KSK expired %s ago' %
                 datetime.timedelta(seconds=waitsecs))
 
         # The key has expired if the current time has passed the key's lifespan.
@@ -156,108 +159,159 @@ class KSKMixin(object):
         # Return the success/failure indication.
         return expired
 
-    def zsk_expired(self, rname, rrr, keyset):
+    def ksk_phaser(self, rname, rrr):
         '''
-        This routine returns a boolean indicating if the specified
-        zone has an expired ZSK key of the given type.
+        Move the specified zone's KSKs through the appropriate phases.
 
-        The zone's keyrec file name is taken from the given rollrec
-        entry.  The keyrec file is read and the zone's entry found.
-        The key keyrec of the specified key type (currently, just
-        "zskcur") is pulled from the keyrec file.  Each key in the
-        named signing set will be checked.
+            Phases in rollover:
+                1 - wait for cache data to expire
+                2 - generate a new (published) KSK and load zone
+                3 - wait for the old DNSKEY RRset to expire from caches
+                4 - transfer new keyset to the parent
+                5 - wait for parent to publish DS record
+                6 - wait for cache data to expire
+                7 - roll the KSKs and load the zone
 
-        Key expiration is determined by comparing the key keyrec's
-        gensecs field to the current time.  The key hasn't expired
-        if the current time is less than the gensecs; the key has
-        expired if the current time is greater than the gensecs.
-
-        @param rname: Name of rollrec rec.
+        @param rname: Zone name.
         @type rname: str
         @param rrr: Reference to rollrec.
         @type rrr: Roll
-        @param keyset: Key to check.
-        @type keyset: str
-
-        @returns: True if ZSK expired
-        @rtype: bool
         '''
-        expired = False  # Expired-zone flag.
-        starter = 0  # Time 0 for calc'ing rolltime.
+        # Get this rollrec record's current phase.
+        ph = rrr.kskphase
 
-        # If this zone is in the middle of KSK rollover, we'll stop
-        # working on ZSK rollover.
-        if rrr.kskphase > 0:
+        # Work on this rollrec's phase.
+        {
+            0: lambda: self.phasecmd(self.nextphase, rname, rrr, 'normal', 'ksk'),
+            1: lambda: self.phasecmd(self.phasewait, rname, rrr, 'ksk1'),
+            2: lambda: self.phasecmd(self.ksk_phase2, rname, rrr, 'ksk2'),
+            3: lambda: self.phasecmd(self.phasewait, rname, rrr, 'ksk3'),
+            4: lambda: self.phasecmd(self.ksk_phase4, rname, rrr, 'ksk4'),
+            5: lambda: self.phasecmd(self.ksk_phase5, rname, rrr, 'ksk5'),
+            6: lambda: self.phasecmd(self.phasewait, rname, rrr, 'ksk6'),
+            7: lambda: self.phasecmd(self.ksk_phase7, rname, rrr, 'ksk7'),
+        }[ph]()
+
+    def ksk_phase2(self, rname, rrr, *skipargs):
+        '''
+        Perform the phase 2 steps of the KSK rollover.  These are:
+            - generate a new KSK to be the Published KSK
+            - add the new Published KSK to the zone file
+            - re-sign the zone file with the Current KSK, the (new)
+              Published KSK, and the Current ZSK
+            - reload the zone file
+        The first three steps are handled by zonesigner.
+
+        @param rname: Name of rollrec.
+        @type rname: str
+        @param rrr: Reference to rollrec.
+        @type rrr: Roll
+        '''
+        # Get the rollrec's associated keyrec file and ensure that it exists.
+        krf = rrr.keyrec()
+        if not rrr['keyrec']:
             self.rolllog_log(
-                LOG_TMI, rname,
-                'in KSK rollover (phase ); not attempting ZSK rollover' %
-                rrr.kskphase)
-            return False
-
-        # If this zone is in the middle of rollover processing, we'll
-        # immediately assume the key has expired.
-        if rrr.zskphase > 0:
-            return True
-
-        # Get the rollin' key's keyrec for our zone.
-        krec = getattr(rrr.keyrec()[rname], keyset)
-        if not krec:
+                LOG_ERR, rname, 'KSK phase 2:  no keyrec for zone specified')
+            return -1
+        if not rrr.keyrec():
             self.rolllog_log(
                 LOG_ERR, rname,
-                'unable to find a keyrec for ZSK "%s" in "%s"' %
-                (keyset, rrr.keyrec_path))
-            return False
+                'KSK phase 2:  keyrec "%s" for zone does not exist' %
+                rrr.keyrec_path)
+            return -1
 
-        # Make sure we've got an actual set keyrec and keys.
-        if not isinstance(krec, KeySet):
+        # Sign the zone with a new Published KSK.
+        ret = self.signer(rname, 'KSK phase 2', krf)
+        if not ret:
             self.rolllog_log(
-                LOG_ERR, rname, '"%s"\'s keyrec is not a set keyrec' %
-                keyset)
-            return False
-        if not krec.keys:
+                LOG_ERR, rname,
+                'KSK phase 2:  unable to sign zone with the Published KSK')
+            return -1
+
+        # Reload the zone.
+        ret = self.loadzone(self.rndc, rname, rrr, 'KSK phase 2')
+        if not ret:
             self.rolllog_log(
-                LOG_ERR, rname, '"%s" has no keys; unable to check expiration"' %
-                rrr.keyrec_path);
-            return False
+                LOG_ERR, rname,
+                'KSK phase 2:  unable to reload zone')
 
-        # Check each key in the signing set to find the one with the shortest
-        # lifespan.  We'll calculate rollover times based on that.
-        minhr = krec.minlife_key()
-        minlife = minhr.life
+        # On to the phase 3.
+        return 3
 
-        if not minhr:
+    def ksk_phase4(self, rname, rrr, *skipargs):
+        '''
+        Perform the phase 4 steps of the KSK rollover.  These are:
+            - notify the admin that the new keyset should be
+              transferred to the parent zone
+
+        @param rname: Name of rollrec.
+        @type rname: str
+        @param rrr: Reference to rollrec.
+        @type rrr: Roll
+        '''
+        if self.auto:
             self.rolllog_log(
-                LOG_ALWAYS, rname,
-                '--------> zsk_expired:  couldn\'t find minimum key keyrec')
-            return False
+                LOG_ERR, rname,
+                'KSK phase 4:  automatic keyset transfer not yet supported')
+            return -1
+        elif (self.dtconf.get('admin-email') == 'nomail' or
+                rrr.get('administrator') == 'nomail'):
+            self.rolllog_log(
+                LOG_INFO, rname,
+                'KSK phase 4:  admin must transfer keyset')
+        else:
+            msg = MIMEText('The zone \"$rname\" is in the middle of KSK rollover.  '
+                'In order for rollover to continue, its keyset must be '
+                'transferred to its parent.')
+            msg['Subject'] = 'PyRollerd: assistance needed with KSK rollover of zone %s' % rname
+            msg['From'] = 'pyrollerd@localhost'
+            # If this zone has its own administrator listed, we won't use
+            # the default.
+            msg['To'] = self.dtconf.get('admin-email') or rrr.get('administrator')
 
-        # Get the start time on which the expiration time is based.
-        if self.zrollmethod == RM_ENDROLL:
-            # Ensure that required rollrec field exists.
-            if 'zsk_rollsecs' not in rrr:
+            # Send the message via our own SMTP server.
+            try:
+                smtp = smtplib.SMTP('localhost')
+                smtp.send_message(msg)
+                smtp.quit()
+            except ConnectionRefusedError:
                 self.rolllog_log(
                     LOG_INFO, rname,
-                    'creating new zsk_rollsecs record and forcing ZSK rollover')
-                rrr.rollstamp('zsk')
-                return False
-            starter = int(rrr['zsk_rollsecs'])
-        elif self.zrollmethod == RM_KEYGEN:
-            # Ensure that required keyrec field exists.
-            if 'keyrec_gensecs' not in minkh:
+                    'KSK phase 4:  admin must transfer keyset')
                 self.rolllog_log(
                     LOG_ERR, rname,
-                    'keyrec does not contain a keyrec_gensecs record')
-                return False
-            starter = int(minkh['keyrec_gensecs'])
-        elif self.zrollmethod == RM_STARTROLL:
+                    'KSK phase 4:  invalid admin; unable to notify about '
+                    'transferring keyset')
+            else:
+                self.rolllog_log(
+                    LOG_INFO, rname,
+                    'KSK phase 4:  admin notified to transfer keyset')
+
+        # Pressing on to phase 5.
+        return 5
+
+    def ksk_phase5(self, rname, rrr, *skipargs):
+        '''
+        Perform the phase 5 steps of the KSK rollover.  These are:
+            - wait for the parent to publish the DS record
+
+        @param rname: Name of rollrec.
+        @type rname: str
+        @param rrr: Reference to rollrec.
+        @type rrr: Roll
+        '''
+        if self.auto:
             self.rolllog_log(
-                LOG_ERR, rname, 'RM_STARTROLL not yet implemented')
-            return False
+                LOG_ERR, rname,
+                'KSK phase 5:  automatic DS-record determination not yet supported')
+            return -1
+            # TODO: publish DS and move to phase 6
 
-        # Don't roll immediately if the rollrec file was newly created.
-        if starter == 0:
-            rrr.rollstamp('zsk')
-            return False
+            # return 6
+        else:
+            self.rolllog_log(
+                LOG_INFO, rname,
+                'KSK phase 5:  waiting for parental publication of DS record')
 
-        # Get the key's expiration time.
-        rolltime = starter + minlife
+        # Stay at phase 5
+        return 5

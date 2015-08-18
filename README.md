@@ -55,6 +55,8 @@ pyrollerd is a rollerd daemon rewriten in python.
 Only 10% of original rollerd features has been implemented at this moment:
 
 * Script was named "rollerd" for compatibility with the original rollctl.
+* Conflicts with the original daemon, avoid running them both at the same time.
 * Command line options
 * Daemonization and rollctl management interface (only "status" command is implemented atm)
 * Initial zone signing
+* KSK Phase 1-5
