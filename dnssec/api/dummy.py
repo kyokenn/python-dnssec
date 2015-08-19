@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Copyright (C) 2015 Okami, okami@fuzetsu.info
 
 # This program is free software; you can redistribute it and/or
@@ -14,20 +13,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# rollctl
-#
-#   This script controls the rollover daemon.
-#   See the pod for more details.
-
-import sys
-
-from dnssec.rollctl import RollCtl
 
 
-if __name__ == '__main__':
+class APIClient(object):
     '''
-    Do Everything.
+    Dummy client for testing purposes
     '''
-    rollctl = RollCtl()
-    rollctl.main(sys.argv)
+    API_KEY = ''
+
+    def __init__(self, API_KEY):
+        self.API_KEY = API_KEY
+
+    def dspub(self, domain, keys):
+        return True

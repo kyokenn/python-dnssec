@@ -49,4 +49,4 @@ if __name__ == '__main__':
     Do Everything.
     '''
     rollerd = RollerD()
-    rollerd.main()
+    rollerd.main(sys.argv)

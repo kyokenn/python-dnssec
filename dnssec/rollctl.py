@@ -186,7 +186,7 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
             self.usage()
 
         # Parse the options.
-        self.opts = self.get_options(self.opts) or self.usage()
+        self.opts = self.get_options(self.opts, sys.argv[1:]) or self.usage()
 
         # Give a usage flag if asked.
         if self.opts['help']:
@@ -341,12 +341,12 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
 
         return self.rollmgr_sendcmd(CHANNEL_WAIT, cmd, arg)
 
-    def main(self):
+    def main(self, args):
         rcret = 0  # Return code for rollctl.
 
         # Check our options.  All the commands are alphabetized, except
         # for shutdown.  We'll save that for last.
-        self.doopts(sys.argv[1:])
+        self.doopts(args[1:])
 
         # If rollerd isn't running, we'll give an error message and exit.
         # Some rollmgr_running() implementations may not be fool-proof.
@@ -366,10 +366,10 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
                 print('rollerd display not started')
                 rcret += 1
         elif self.dspubflag:
-            if not sys.argv[2:]:
+            if not args[2:]:
                 print('pyrollctl: -dspub missing zone argument', file=sys.stderr)
                 sys.exit(1)
-            for zone in sys.argv[2:]:
+            for zone in args[2:]:
                 if not self.sendcmd(ROLLCMD_DSPUB, zone):
                     print(
                         'pyrollctl:  error sending command DSPUB(%s)' % zone,
@@ -459,7 +459,7 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
                     print('phasemsg set failed:  %s' % resp)
                     rcret += 1
         elif self.mergerrfsflag:
-            rrfs = ':'.join(sys.argv[2:]);
+            rrfs = ':'.join(args[2:]);
             if not self.sendcmd(ROLLCMD_MERGERRFS, rrfs):
                 print(
                     'pyrollctl:  error sending command MERGERRFS',
@@ -528,10 +528,10 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
                 print('couldn\'t set rollrec file:  %s' % resp)
                 rcret += 1
         elif self.rollkskflag:
-            if not sys.argv[2:]:
+            if not args[2:]:
                 print('pyrollctl: -rollksk missing zone argument', file=sys.stderr)
                 sys.exit(2)
-            for zone in sys.argv[2:]:
+            for zone in args[2:]:
                 if not self.sendcmd(ROLLCMD_ROLLKSK, zone):
                     print(
                         'pyrollctl:  error sending command ROLLKSK(%s)' % zone,
@@ -546,12 +546,12 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
                         (zone, resp))
                     rcret += 1
         elif self.rollzoneflag:
-            if not sys.argv[2:]:
+            if not args[2:]:
                 print(
                     'pyrollctl: -rollzone missing zone argument',
                     file=sys.stderr)
                 sys.exit(2)
-            for zone in sys.argv[2:]:
+            for zone in args[2:]:
                 if not self.sendcmd(ROLLCMD_ROLLZONE, zone):
                     print(
                         'pyrollctl:  error sending command ROLLZONE(%s)' % zone,
@@ -566,10 +566,10 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
                         (zone, resp))
                     rcret += 1
         elif self.rollzskflag:
-            if not sys.argv[2:]:
+            if not args[2:]:
                 print('pyrollctl: -rollzsk missing zone argument', file=sys.stderr)
                 sys.exit(2)
-            for zone in sys.argv[2:]:
+            for zone in args[2:]:
                 if not self.sendcmd(ROLLCMD_ROLLZSK, zone):
                     print(
                         'pyrollctl:  error sending command ROLLZSK(%s)' % zone,
@@ -621,12 +621,12 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
                 print('rollerd error response:  <%s>' % resp)
                 rcret += 1
         elif self.signzoneflag:
-            if not sys.argv[2:]:
+            if not args[2:]:
                 print(
                     'pyrollctl: -signzone missing zone argument',
                     file=sys.stderr)
                 sys.exit(2)
-            for zone in sys.argv[2:]:
+            for zone in args[2:]:
                 if not self.sendcmd(ROLLCMD_SIGNZONE, zone):
                     print(
                         'pyrollctl:  error sending command SIGNZONE(%s)' % zone,
@@ -639,7 +639,7 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
                     print('unable to sign zone %s:  "%s"' % (zone, resp))
                     rcret += 1
         elif self.signzonesflag:
-            flag = sys.argv[2]
+            flag = args[2]
             if flag not in ('all', 'active'):
                 print(
                     'pyrollctl:  -signzones must be given the "all" or '
@@ -670,12 +670,12 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
                 print(resp)
                 rcret += 1
         elif self.skipzoneflag:
-            if not sys.argv[2:]:
+            if not args[2:]:
                 print(
                     'pyrollctl: -skipzone missing zone argument',
                     file=sys.stderr)
                 sys.exit(2)
-            for zone in sys.argv[2:]:
+            for zone in args[2:]:
                 if not self.sendcmd(ROLLCMD_SKIPZONE, zone):
                     print(
                         'pyrollctl:  error sending command SKIPZONE(%s)' % zone,
@@ -700,7 +700,7 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
                 print('sleep-time set failed:  "%s"' % resp)
                 rcret += 1
         elif self.splitrrfflag:
-            rrfs = ':'.join(sys.argv[2:])
+            rrfs = ':'.join(args[2:])
             if not self.sendcmd(ROLLCMD_SPLITRRF, rrfs):
                 print(
                     'pyrollctl:  error sending command SPLITRRF',
@@ -762,12 +762,12 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
                 print(resp)
                 rcret += 1
         elif self.zonelogflag:
-            if not sys.argv[2:]:
+            if not args[2:]:
                 print(
                     'pyrollctl: -zonelog missing zone:loglevel argument',
                     file=sys.stderr)
                 sys.exit(2)
-            for zone in sys.argv[2:]:
+            for zone in args[2:]:
                 if not re.match(r'.+\:.+', zone):
                     print(
                         'pyrollctl:  improperly formed zone:loglevel pair',
@@ -797,13 +797,13 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
                 print('zonestatus failed:  "%s"' % resp)
                 rcret += 1
         elif self.zsargsflag:
-            if not sys.argv[2:]:
+            if not args[2:]:
                 print(
                     'zoneargs failed:  arguments are required', file=sys.stderr)
                 sys.exit(2)
             else:
                 # Zonesigner arguments.
-                zsargs = ','.join(sys.argv[2:])
+                zsargs = ','.join(args[2:])
                 if not self.sendcmd(ROLLCMD_ZSARGS, zsargs):
                     print('pyrollctl:  error sending command ZSARGS', file=sys.stderr)
                     sys.exit(1)

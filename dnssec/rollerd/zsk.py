@@ -17,9 +17,9 @@
 import time
 import calendar
 
-from .defs import *
-from .rolllog import *
-from .parsers.keyrec import KeySet
+from ..defs import *
+from ..rolllog import *
+from ..parsers.keyrec import KeySet
 
 
 class ZSKMixin(object):
@@ -180,3 +180,108 @@ class ZSKMixin(object):
             3: lambda: self.phasecmd(self.phasewait, rname, rrr, 'zsk3'),
             4: lambda: self.phasecmd(self.zsk_phase4, rname, rrr, 'zsk4'),
         }[ph]()
+
+    def zsk_phase2(self, rname, rrr, *skipargs):
+        '''
+        Perform the phase 2 steps of the ZSK rollover.  These are:
+            - sign the zone with the KSK and Published ZSK
+            - reload the zone
+            - wait for old zone data to expire
+
+        @param rname: Name of rollrec.
+        @type rname: str
+        @param rrr: Reference to rollrec.
+        @type rrr: Roll
+
+        @returns: Next phase number or -1 on error
+        @rtype: int
+        '''
+        # Get the rollrec's associated keyrec file and ensure that it exists.
+        krf = rrr.keyrec()
+        if not rrr.get('keyrec'):
+            self.rolllog_log(
+                LOG_ERR, rname, 'ZSK phase 2:  no keyrec for zone specified')
+            return 2
+        if not krf:
+            self.rolllog_log(
+                LOG_ERR, rname,
+                'ZSK phase 2:  keyrec "%s" for zone does not exist' %
+                rrr['keyrec'])
+            return 2
+
+        # Sign the zone with the Published ZSK.
+        ret = self.signer(rname, 'ZSK phase 2', krf)
+        if not ret:
+            self.rolllog_log(
+                LOG_ERR, rname,
+                'ZSK phase 2:  unable to sign zone with the Published ZSK')
+            return -1
+
+        # Update the timestamp in the zone's keyrec.
+        krf[rname].settime()
+        krf.save()
+
+        # Reload the zone.
+        ret = self.loadzone(self.rndc, rname, rrr, 'ZSK phase 2')
+        if not ret:
+            self.rolllog_log(
+                LOG_ERR, rname, 'ZSK phase 2:  unable to reload zone')
+
+        # Return the next phase number.
+        return 3
+
+    def zsk_phase4(self, rname, rrr, *skipargs):
+        '''
+        Perform the phase 4 steps of the rollover.  These are:
+
+        - juggle the ZSKs in the zone's keyrec
+        - sign the zone with the KSK and new current ZSK
+        - reload the zone
+        - return the zone to the pre-rollover state
+
+        @param rname: Name of rollrec.
+        @type rname: str
+        @param rrr: Reference to rollrec.
+        @type rrr: Roll
+
+        @returns: Next phase number or -1 on error
+        @rtype: int
+        '''
+        # Get the rollrec's associated keyrec file and ensure that it exists.
+        krf = rrr.keyrec()
+        if not rrr.get('keyrec'):
+            self.rolllog_log(
+                LOG_ERR, rname, 'ZSK phase 4:  no keyrec for zone specified')
+            return -1
+        if not krf:
+            self.rolllog_log(
+                LOG_ERR, rname,
+                'ZSK phase 4:  keyrec "%s" for zone does not exist' %
+                rrr['keyrec'])
+            return -1
+
+        # Adjust ZSKs in the zone's keyrec.
+        ret = self.signer(rname, 'ZSK phase 4a', krf)
+        if not ret:
+            self.rolllog_log(
+                LOG_ERR, rname, 'ZSK phase 4:  unable to adjust ZSK keyrec')
+            return -1
+
+        # Sign the zone with the Current ZSK.
+        ret = self.signer(rname, 'ZSK phase 4b', krf)
+        if not ret:
+            self.rolllog_log(
+                LOG_ERR, rname,
+                'ZSK phase 4:  unable to sign zone with the Current ZSK')
+            return -1
+
+        # Reload the zone.
+        ret = self.loadzone(self.rndc, rname, rrr, 'ZSK phase 4')
+        if not ret:
+            self.rolllog_log(
+                LOG_ERR, rname, 'ZSK phase 4:  unable to reload zone')
+
+        # Set a timestamp for the completion of the ZSK roll.
+        rrr.rollstamp('zsk')
+        rrr.clearzoneerr()
+        return 5

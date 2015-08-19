@@ -15,9 +15,8 @@ class CommonMixin(object):
         print(self.VERS)
         print(self.DTVERS)
 
-    def get_options(self, opts):
+    def get_options(self, opts, args):
         opts = copy.copy(opts)
-        args = sys.argv[1:]
         skip = False
         for i, key in enumerate(args):
             if skip:

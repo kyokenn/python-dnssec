@@ -20,9 +20,9 @@ import smtplib
 
 from email.mime.text import MIMEText
 
-from .defs import *
-from .rolllog import *
-from .parsers.keyrec import KeySet
+from ..defs import *
+from ..rolllog import *
+from ..parsers.keyrec import KeySet
 
 
 class KSKMixin(object):
@@ -248,6 +248,9 @@ class KSKMixin(object):
         @type rname: str
         @param rrr: Reference to rollrec.
         @type rrr: Roll
+
+        @returns: Next phase number or -1 on error
+        @rtype: int
         '''
         if self.auto and self.provider and self.provider_key:
             self.rolllog_log(
@@ -304,6 +307,9 @@ class KSKMixin(object):
         @type rname: str
         @param rrr: Reference to rollrec.
         @type rrr: Roll
+
+        @returns: Next phase number or -1 on error
+        @rtype: int
         '''
         if self.auto and self.provider and self.provider_key:
             self.rolllog_log(
@@ -334,6 +340,9 @@ class KSKMixin(object):
         @type rname: str
         @param rrr: Reference to rollrec.
         @type rrr: Roll
+
+        @returns: Next phase number or -1 on error
+        @rtype: int
         '''
         # Get the rollrec's associated keyrec file and ensure that it exists.
         krr = rrr.keyrec()

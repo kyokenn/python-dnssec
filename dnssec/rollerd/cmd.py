@@ -16,8 +16,8 @@
 
 import os
 
-from .defs import *
-from .rolllog import *
+from ..defs import *
+from ..rolllog import *
 
 
 class CmdMixin(object):

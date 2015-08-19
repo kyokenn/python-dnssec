@@ -22,7 +22,9 @@ import collections
 import datetime
 import os
 import re
+import time
 
+from . import DATETIME_FORMAT
 from .abstract import TabbedConf
 
 
@@ -91,6 +93,12 @@ class Zone(Section):
         '''
         return self._kskcur
 
+    def settime(self):
+        t = int(time.time())
+        self['keyrec_signsecs'] = t
+        self['keyrec_signdate'] = (
+            datetime.datetime.fromtimestamp(t).strftime(DATETIME_FORMAT))
+
 
 class KeySet(Section):
     _TYPE = 'set'
@@ -113,6 +121,12 @@ class KeySet(Section):
         @rtype: Key
         '''
         return next(iter(sorted(self.keys, key=lambda x: x.life)), None)
+
+    def settime(self):
+        t = int(time.time())
+        self['keyrec_setsecs'] = t
+        self['keyrec_setdate'] = (
+            datetime.datetime.fromtimestamp(t).strftime(DATETIME_FORMAT))
 
 
 class Key(Section):
@@ -227,6 +241,12 @@ class Key(Section):
         dnskeys = zonedata.get_rdataset(zonedata.origin, rdatatype.DNSKEY)
         return bool(list(filter(
             lambda x: x.key == self.public_key_source(), dnskeys)))
+
+    def settime(self):
+        t = int(time.time())
+        self['keyrec_gensecs'] = t
+        self['keyrec_gendate'] = (
+            datetime.datetime.fromtimestamp(t).strftime(DATETIME_FORMAT))
 
 
 class KeyRec(TabbedConf):

@@ -95,7 +95,8 @@ class RollMgrMixin(object):
                 self.CLNTSOCK.connect(('localhost', CMDPORT))
         elif CHANNEL_TYPE == socket.AF_UNIX:
             # Build the socket name and construct the socket data.
-            unixsock = os.path.join('/run/dnssec-tools', UNIXSOCK)
+            unixsock = self.sockfile or os.path.join(
+                '/run/dnssec-tools', UNIXSOCK)
 
             # Ensure the socket name isn't too long.  This is a result
             # of a hardcode maximum length for socket names.  This is

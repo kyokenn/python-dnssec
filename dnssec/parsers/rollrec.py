@@ -25,11 +25,9 @@ import time
 
 import dns.zone
 
+from . import DATETIME_FORMAT
 from .abstract import TabbedConf
 from .keyrec import KeyRec
-
-DATETIME_FORMAT = '%a %b %d %H:%M:%S %Y'
-# DATETIME_FORMAT = '%c'
 
 
 class Roll(TabbedConf):
@@ -150,8 +148,7 @@ class Roll(TabbedConf):
             *tuple(map(lambda node: node.rdatasets, self.zone().values()))),
             key=lambda node: node.ttl))
         rdataset = next(iter(rdatasets), None)
-        # ttl = rdataset and rdataset.ttl or 0
-        ttl = 60  # for debugging
+        ttl = rdataset and rdataset.ttl or 0
         self['maxttl'] = str(ttl)
         return ttl * 2
 
@@ -188,25 +185,30 @@ class Roll(TabbedConf):
         return rcode
 
     def dspub(self, provider, api_key):
+        keyrec = self.keyrec()
+        keys = []
+        zskcur = keyrec[self['zonename']]._zskcur
+        zskpub = keyrec[self['zonename']]._zskpub
+        kskcur = keyrec[self['zonename']]._kskcur
+        kskpub = keyrec[self['zonename']]._kskpub
+        if zskcur:
+            keys += zskcur.keys
+        if zskpub:
+            keys += zskpub.keys
+        if kskcur:
+            keys += kskcur.keys
+        if kskpub:
+            keys += kskpub.keys
+
         if provider == 'gandi.net':
             from ..api.gandi import APIClient
-            apiclient = APIClient(api_key)
-            keyrec = self.keyrec()
-            keys = []
-            zskcur = keyrec[self['zonename']]._zskcur
-            zskpub = keyrec[self['zonename']]._zskpub
-            kskcur = keyrec[self['zonename']]._kskcur
-            kskpub = keyrec[self['zonename']]._kskpub
-            if zskcur:
-                keys += zskcur.keys
-            if zskpub:
-                keys += zskpub.keys
-            if kskcur:
-                keys += kskcur.keys
-            if kskpub:
-                keys += kskpub.keys
-            return apiclient.dspub(self['zonename'], keys)
-        return False
+        elif provider == 'dummy':
+            from ..api.dummy import APIClient
+        else:
+            return False
+
+        apiclient = APIClient(api_key)
+        return apiclient.dspub(self['zonename'], keys)
 
     @property
     def phase_description(self):

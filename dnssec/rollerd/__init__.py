@@ -24,16 +24,16 @@ import subprocess
 import sys
 import time
 
+from ..common import CommonMixin
+from ..defs import *
+from ..parsers.keyrec import KeySet
+from ..rolllog import *
+from ..rollmgr import *
+from ..rollrec import RollRecMixin
 from .cmd import CmdMixin
-from .common import CommonMixin
 from .daemon import DaemonMixin
-from .defs import *
 from .ksk import KSKMixin
-from .parsers.keyrec import KeySet
 from .message import MessageMixin
-from .rolllog import *
-from .rollmgr import *
-from .rollrec import RollRecMixin
 from .zsk import ZSKMixin
 
 
@@ -75,6 +75,8 @@ class RollerD(
         'logtz': '',  # Logging timezone.
         'noreload': False,  # Don't reload zone files.
         'pidfile': '',  # pid storage file.
+        'lockfile': '',  # rollrec lock file
+        'sockfile': '',  # socket file
         'dtconfig': '',  # dnssec-tools config file to use.
         'sleep': 0,  # Sleep amount (in seconds.)
         'parameters': False,  # Display the parameters and exit.
@@ -103,6 +105,8 @@ class RollerD(
     logtz = ''  # Logging timezone.
     zoneload = True  # Zone-reload flag.
     pidfile = ''  # Pid storage file.
+    lockfile = ''  # rollrec lock file
+    sockfile = ''  # socket file
     realm = ''  # Our realm.
     singlerun = False  # Single run only.
     sleep_override = False  # Sleep-override flag.
@@ -164,7 +168,7 @@ class RollerD(
 
     rrferrors = 0  # Count of times through list.
 
-    def main(self):
+    def main(self, args):
         '''
         Do Everything.
 
@@ -176,7 +180,7 @@ class RollerD(
                     handle according to its phase
         '''
         # Parse our command line into an options hash.
-        self.opts = self.get_options(self.opts) or self.usage()
+        self.opts = self.get_options(self.opts, args[1:]) or self.usage()
 
         # If there's a -dtconfig command line option, we'll use that,
         self.dtconfig = '/etc/dnssec-tools/dnssec-tools.conf'
@@ -416,7 +420,14 @@ class RollerD(
                     'keyrec "%s" does not exist; running initial zonesigner' %
                     rrr.keyrec_path)
                 self.signer(rname, 'initial')
-                # TODO: publish keys
+                if self.auto and self.provider and self.provider_key:
+                    self.rolllog_log(
+                        LOG_ERR, rname, 'transfer new keyset to the parent')
+                    ret = rrr.dspub(self.provider, self.provider_key)
+                    if not ret:
+                        self.rolllog_log(
+                            LOG_ERR, rname,
+                            'automatic keyset transfer failed')
 
             # Ensure the record has the KSK and ZSK phase fields.
             if 'kskphase' not in rrr:
@@ -534,6 +545,8 @@ class RollerD(
         self.foreground = self.opts[OPT_FOREGROUND]
         self.alwayssign = self.opts[OPT_ALWAYSSIGN] or False
         self.pidfile = self.opts[OPT_PIDFILE]
+        self.lockfile = self.opts['lockfile']
+        self.sockfile = self.opts['sockfile']
         self.realm = self.opts[OPT_REALM]
         self.verbose = self.opts[OPT_VERBOSE]
         self.logfile = self.opts[OPT_LOGFILE] or self.dtconf.get(DT_LOGFILE)
@@ -683,8 +696,7 @@ class RollerD(
 
         # autopublish settings for KSK phase 5
         self.auto = self.dtconf.get('roll_auto') == '1'
-        if self.dtconf.get('roll_provider', '') in ('gandi.net',):
-            self.provider = self.dtconf.get('roll_provider')
+        self.provider = self.dtconf.get('roll_provider')
         self.provider_key = self.dtconf.get('roll_provider_key')
 
     def getprogs(self):
@@ -705,7 +717,7 @@ class RollerD(
         Purpose: Perform whatever clean-up is required.
         '''
         if self.loglevel == LOG_TMI:
-            self.rolllog_log(LOG_ALWAYS, 'cleaning up...')
+            self.rolllog_log(LOG_ALWAYS, '', 'cleaning up...')
         sys.exit(0)
 
     def signer(self, rname, zsflag, krr=None):

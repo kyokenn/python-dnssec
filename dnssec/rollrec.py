@@ -38,7 +38,8 @@ class RollRecMixin(object):
         if not self.RRLOCK:
             if not os.path.exists('/run/dnssec-tools'):
                 os.mkdir('/run/dnssec-tools')
-            self.RRLOCK = open('/run/dnssec-tools/rollrec.lock', 'w')
+            self.RRLOCK = open(
+                self.lockfile or '/run/dnssec-tools/rollrec.lock', 'w')
             # self.RRLOCK.write(' ')
             # self.RRLOCK.flush()
         # Lock the lock file.

@@ -17,8 +17,8 @@
 import time
 import signal
 
-from .rollmgr import *
-from .rolllog import *
+from ..rollmgr import *
+from ..rolllog import *
 
 
 class DaemonMixin(object):
