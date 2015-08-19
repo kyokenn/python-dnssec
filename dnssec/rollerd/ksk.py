@@ -229,7 +229,7 @@ class KSKMixin(object):
             return -1
 
         # Reload the zone.
-        ret = self.loadzone(self.rndc, rname, rrr, 'KSK phase 2')
+        ret = self.loadzone(rname, rrr, 'KSK phase 2')
         if not ret:
             self.rolllog_log(
                 LOG_ERR, rname,
@@ -367,7 +367,7 @@ class KSKMixin(object):
             return -1
 
         # Reload the zone.
-        ret = self.loadzone(self.rndc, rname, rrr, 'KSK phase 7')
+        ret = self.loadzone(rname, rrr, 'KSK phase 7')
         if not ret:
             self.rolllog_log(
                 LOG_ERR, rname,

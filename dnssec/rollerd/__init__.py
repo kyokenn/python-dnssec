@@ -30,6 +30,7 @@ from ..parsers.keyrec import KeySet
 from ..rolllog import *
 from ..rollmgr import *
 from ..rollrec import RollRecMixin
+from .conf import ConfMixin
 from .cmd import CmdMixin
 from .daemon import DaemonMixin
 from .ksk import KSKMixin
@@ -38,6 +39,7 @@ from .zsk import ZSKMixin
 
 
 class RollerD(
+        ConfMixin,
         CmdMixin,
         CommonMixin,
         DaemonMixin,
@@ -485,16 +487,6 @@ class RollerD(
         self.loglevel = self.loglevel_save
         self.loglevel = self.rolllog_level(self.loglevel, False)
 
-    def parseconfig(self, path):
-        config = {}
-        for line in open(path, 'r').readlines():
-            line = line.strip()
-            if line and not line.startswith('#') and not line.startswith(';'):
-                key, sep, value = line.replace('\t', ' ').partition(' ')
-                if key and value:
-                    config[key.strip()] = value.strip()
-        return config
-
     def rrfokay(self, mp=''):
         '''
         Routine: rrfokay()
@@ -563,7 +555,7 @@ class RollerD(
             or '/usr/sbin/zonesigner')
 
         # Check for autosign presence or absence.
-        self.autosign = self.opts[OPT_AUTOSIGN] or (self.dtconf.get(OPT_AUTOSIGN) == '1') or False
+        self.autosign = self.opts[OPT_AUTOSIGN] or (self.dtconf.get(DT_AUTOSIGN) == '1') or False
 
         # Determine whether or not we'll load zones.
         self.zoneload = not self.opts[OPT_NORELOAD] or (self.dtconf.get(DT_LOADZONE) == '1')
@@ -1218,12 +1210,10 @@ class RollerD(
         # Return the next phase number.
         return phase + 1
 
-    def loadzone(self, rndc, rname, rrr, phase):
+    def loadzone(self, rname, rrr, phase):
         '''
         Initiates zone-reload, but obeys the $zoneload flag.
 
-        @param rndc: Zone-loading program.
-        @type rndc: str
         @param rname: Rollrec name of zone.
         @type rname: str
         @param rrr: Reference to rollrec.
@@ -1244,5 +1234,5 @@ class RollerD(
 
         # Reload the zone for real.
         self.rolllog_log(LOG_INFO, rname, 'reloading zone for %s' % phase)
-        ret = rrr.loadzone(rndc, useopts)
+        ret = rrr.loadzone(self.rndc, useopts)
         return ret == 0

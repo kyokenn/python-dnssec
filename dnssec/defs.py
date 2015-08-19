@@ -32,6 +32,7 @@ DT_LOGTZ = 'log_tz'
 DT_RNDCOPTS = 'rndc-opts'
 DT_SLEEP = 'roll_sleeptime'
 DT_USERNAME = 'roll_username'
+DT_AUTOSIGN = 'roll_autosign'
 
 OPT_ALWAYSSIGN = 'alwayssign'
 OPT_AUTOSIGN = 'autosign'

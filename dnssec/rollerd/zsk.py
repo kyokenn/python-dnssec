@@ -222,7 +222,7 @@ class ZSKMixin(object):
         krf.save()
 
         # Reload the zone.
-        ret = self.loadzone(self.rndc, rname, rrr, 'ZSK phase 2')
+        ret = self.loadzone(rname, rrr, 'ZSK phase 2')
         if not ret:
             self.rolllog_log(
                 LOG_ERR, rname, 'ZSK phase 2:  unable to reload zone')
@@ -276,7 +276,7 @@ class ZSKMixin(object):
             return -1
 
         # Reload the zone.
-        ret = self.loadzone(self.rndc, rname, rrr, 'ZSK phase 4')
+        ret = self.loadzone(rname, rrr, 'ZSK phase 4')
         if not ret:
             self.rolllog_log(
                 LOG_ERR, rname, 'ZSK phase 4:  unable to reload zone')
