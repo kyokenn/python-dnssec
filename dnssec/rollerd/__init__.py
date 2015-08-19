@@ -1061,7 +1061,7 @@ class RollerD(
             self.rolllog_log(LOG_PHASE, rname, 'zonefile modified; re-signing')
 
             # Sign -- just sign -- the zone.
-            if signer(rname, rrr.phaseargs, krf) == 0:
+            if self.signer(rname, rrr.phaseargs, krf) == 0:
                 self.rolllog_log(LOG_TMI, rname, 'rollerd signed zone')
             else:
                 self.rolllog_log(LOG_ERR, rname, 'unable to sign zone')
