@@ -41,6 +41,7 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
         'mergerrfs': False,  # Merge a set of rollrec files.
         'phasemsg': '',  # Set rollerd's phase-message length.
         'pidfile': '',  # pid storage file.
+        'sockfile': '',  # socket file
         'nodisplay': False,  # Turn off rollerd's graphical display.
         'rollall': False,  # Resume all suspended zones.
         'rollallksks': False,  # KSK-roll all our zones.
@@ -106,6 +107,7 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
     zrollallflag = False
     zsargsflag = False
     pidfile = ''
+    sockfile = ''  # socket file
     quiet = False
     version = False   # Display the version number.
 
@@ -126,10 +128,11 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
 \t-pidfile <pidfile>\tset rollerd's process-id file
 \t-nodisplay\t\tstop graphical display
 \t-rollall\t\trestart all suspended zones
-\t-rollallzsks\t\troll all zones
+\t-rollallzsks\t\tZSK-roll all zones
+\t-rollallksks\t\tKSK-roll all zones
+\t-rollzsk <zone>\t\troll named zone
 \t-rollksk <zone>\t\troll specified zone's KSK
 \t-rollzone <zone>\trestart named suspended zone
-\t-rollzsk <zone>\t\troll named zone
 \t-rollrec <rollrec>\tset rollrec file
 \t-runqueue\t\trun queue
 \t-shutdown [now]\t\tshutdown rollerd
@@ -814,3 +817,11 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
                     print('zsarg failed:  "%s"' % resp)
                     rcret += 1
         return rcret
+
+    def zonestatus(self, resp):
+        '''
+        @param resp: Full response from rollerd.
+        @type: str
+        '''
+        # pretty-print is not implemented, falling back to plain print
+        print(resp)

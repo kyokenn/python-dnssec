@@ -90,6 +90,8 @@ class RollRecMixin(object):
         @returns: tuple of rollrec names
         @rtype: tuple
         '''
+        if not self.ROLLREC:
+            return tuple()
         return tuple(zip(*filter(
             lambda x: x[1].name != 'info rollrec', self.ROLLREC.items())))[0]
 

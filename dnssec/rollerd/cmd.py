@@ -385,3 +385,52 @@ zone reload:\t%(zoneload)s
             self.rollmgr_sendresp(ROLLCMD_RC_OKAY, outbuf)
 
         self.rollrec_unlock()
+
+    def cmd_rollall(self):
+        '''
+        This command resumes rollover for all suspended zones in the
+        rollrec file.  The zones' rollrec records are marked as being
+        "roll" records, which will cause rollerd to start working on
+        them.  This change is reflected in the rollrec file.  rollnow()
+        is called for each suspended zone, in order to resume rollover.
+        We'll also keep track of the suspended zones we were and weren't
+        able to stop and report them to the caller.
+        '''
+        good = []  # Resumed zones.
+        bad = []  # Unresumed zones.
+
+        cnt = 0  # Total count.
+        gcnt = 0  # Resumed count.
+        bcnt = 0  # Unresumed count.
+
+        self.rolllog_log(LOG_TMI, '<command>', 'rollall command received')
+
+        # Each suspended zone in the rollrec file will be returned to the
+        # rollover process.  We'll keep track of the suspended zones that were
+        # resumed and those that weren't in order to provide an appropriate
+        # response message.
+        for zone in self.rollrec_names():
+            cnt += 1
+
+            # If the resume worked, increment the good count and add
+            # the domain name to the list of good zones.  If it didn't
+            # work, do the same for the bad count and bad-zone list.
+            if self.rollnow(zone, 'restart', 1) == 1:
+                gcnt += 1
+                good.append(zone)
+            else:
+                bcnt += 1
+                bad.append(zone)
+
+        # Send a response message to the caller.
+        if gcnt == cnt:
+            self.rollmgr_sendresp(ROLLCMD_RC_OKAY, ' '.join(good))
+        else:
+            resp = 'unable to resume roll process for zones:  %s\n' % ' '.join(bad)
+
+            # If there were any zones that were resumed, we'll add them
+            # to the message as well.
+            if gcnt > 0:
+                resp += 'zones now resumed:  %s\n' % ' '.join(good)
+
+            self.rollmgr_sendresp(ROLLCMD_RC_BADZONE, resp)
