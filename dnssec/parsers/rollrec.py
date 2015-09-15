@@ -52,8 +52,8 @@ class Roll(TabbedConf):
 
     def __str__(self):
         return '%s\t"%s"\n%s' % (
-            'roll' if self.is_active else 'skip',
-            self.name, ''.join(map(lambda x: self._format(*x), self.items())))
+            self.rollrec_type, self.name,
+            ''.join(map(lambda x: self._format(*x), self.items())))
 
     def _full_path(self, key):
         directory = self.get('directory', self._directory)
@@ -84,6 +84,10 @@ class Roll(TabbedConf):
             return 'ksk'
         elif self.zskphase != 0:
             return 'zsk'
+
+    @property
+    def rollrec_type(self):
+        return 'roll' if self.is_active else 'skip'
 
     @property
     def phase(self):

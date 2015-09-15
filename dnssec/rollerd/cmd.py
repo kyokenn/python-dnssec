@@ -321,8 +321,67 @@ zone reload:\t%(zoneload)s
                 '%s has bad values in rollrec file %s' %
                 (zone, self.rollrecfile))
 
-    def cmd_shutdown(self):
+    def cmd_shutdown(self, data):
         ''' This command forces rollerd to shut down. '''
         self.rolllog_log(LOG_TMI, '<command>', 'shutdown command received')
         self.rollmgr_sendresp(ROLLCMD_RC_OKAY, 'rollerd shutting down')
         self.halt_handler()
+
+    def cmd_zonestatus(self, data):
+        '''
+        Return zone status to the control program.
+
+        @param data: Command's data.
+        @type data: str
+        '''
+        cnt = 0  # Zone count.
+        outbuf = ''  # Zone status line.
+
+        self.rolllog_log(LOG_TMI, '<command>', 'zonestatus command received')
+
+        self.rollrec_lock()
+
+        # Read the rollrec file.  If we couldn't, complain and return.
+        if not self.rollrec_read():
+            self.rollrec_unlock()
+            self.rollmgr_sendresp(
+                ROLLCMD_RC_RRFOPEN,
+                'unable to open rollrec file %s' % self.rollrecfile)
+            self.rolllog_log(
+                LOG_ALWAYS, '<command>',
+                'unable to open rollrec file %s' % self.rollrecfile)
+            return
+
+        # Add the status of each zone in the rollrec file to our output buffer.
+        for rname in self.rollrec_names():
+            # Get the rollrec for this name.
+            rrr = self.rollrec_fullrec(rname)
+
+            # Get the data we're interested in.
+            if rrr.kskphase > 0:
+                phase = 'KSK %d' % rrr.kskphase
+            else:
+                phase = 'ZSK %d' % rrr.zskphase
+            pstr = rrr.phase_description
+
+            phase = '%s: %s' % (phase, pstr) if pstr else ''
+            if not rrr.is_active:
+                phase = '-'
+
+            # Add the data to the output buffer and bump our zone count.
+            outbuf += '%s/%s\t%s\t%s\n' % (
+                rname, rrr['zonename'], rrr.rollrec_type, phase)
+            cnt += 1
+
+        # Send a response to the control program.
+        if not cnt:
+            self.rollmgr_sendresp(
+                ROLLCMD_RC_NOZONES,
+                'no zones defined in %s' % self.rollrecfile)
+            self.rolllog_log(
+                LOG_ALWAYS, '<command>',
+                'no zones defined in %s' % self.rollrecfile)
+        else:
+            self.rollmgr_sendresp(ROLLCMD_RC_OKAY, outbuf)
+
+        self.rollrec_unlock()

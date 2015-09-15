@@ -965,8 +965,8 @@ class RollerD(
 
         # Get the rollin' key's keyrec for our zone.
         krec = rrr.keyrec()
-        krname = krec[rname]['%scur' % phasetype]
-        setrec = getattr(rrr.keyrec()[rname], '%scur' % phasetype)
+        krname = krec[rname]['%scur' % phasetype.lower()]
+        setrec = getattr(krec[rname], '%scur' % phasetype.lower())
         if not setrec:
             self.rolllog_log(
                 LOG_ERR, rname,
