@@ -51,43 +51,32 @@ class DaemonMixin(object):
             self.rollmgr_closechan()
 
     def intcmd_handler(self):
-        '''
-        Routine: intcmd_handler()
-        Purpose: Handle an interrupt and get a command.
-        '''
+        ''' Handle an interrupt and get a command. '''
         self.rolllog_log(LOG_TMI, '<command>', 'rollover manager:  got a command interrupt\n')
         self.controllers(False)
         self.commander()
         self.controllers(True)
 
     def halt_handler(self):
-        '''
-        Routine: halt_handler()
-        Purpose: Handle the "halt" command.
-        '''
+        ''' Handle the "halt" command. '''
         self.rolllog_log(LOG_ALWAYS, '', 'rollover manager shutting down...\n')
         # self.rollrec_write()   # dump the current file with commands
         sys.exit(0)
 
     def queue_int_handler(self):
-        '''
-        Routine: queue_int_handler()
-        Purpose: Remember that a sig INT was received for later processing.
-        '''
+        ''' Remember that a sig INT was received for later processing. '''
         self.queued_int = True
 
     def queue_hup_handler(self):
-        '''
-        Routine: queue_hup_handler()
-        Purpose: Remember that a sig HUP was received for later processing.
-        '''
+        ''' Remember that a sig HUP was received for later processing. '''
         self.queued_hup = True
 
     def controllers(self, onflag):
         '''
-        Routine: controllers()
-        Purpose: Initialize handlers for our externally provided commands.
-        onflag - Handler on/off flag.
+        Initialize handlers for our externally provided commands.
+
+        @param onflag: Handler on/off flag.
+        @type onflag: bool
         '''
         # Set the signal handlers that will manage incoming commands.
         if onflag:

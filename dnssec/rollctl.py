@@ -92,7 +92,7 @@ class RollCtl(RollMgrMixin, RollLogMixin, CommonMixin):
     runqueueflag = False
     queuelistflag = False
     queuestatusflag = False
-    shutdownflag = False
+    shutdownflag = 0
     signzoneflag = False
     signzonesflag = False
     skipallflag = False

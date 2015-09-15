@@ -320,3 +320,9 @@ zone reload:\t%(zoneload)s
                 ROLLCMD_RC_BADZONEDATA,
                 '%s has bad values in rollrec file %s' %
                 (zone, self.rollrecfile))
+
+    def cmd_shutdown(self):
+        ''' This command forces rollerd to shut down. '''
+        self.rolllog_log(LOG_TMI, '<command>', 'shutdown command received')
+        self.rollmgr_sendresp(ROLLCMD_RC_OKAY, 'rollerd shutting down')
+        self.halt_handler()
