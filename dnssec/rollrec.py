@@ -35,13 +35,12 @@ class RollRecMixin(object):
         a set of routines.
         '''
         # Open (and create?) our lock file.
+        lockfile = self.lockfile or '/run/dnssec-tools/rollrec.lock'
+        lockdir = os.path.dirname(lockfile)
         if not self.RRLOCK:
-            if not os.path.exists('/run/dnssec-tools'):
-                os.mkdir('/run/dnssec-tools')
-            self.RRLOCK = open(
-                self.lockfile or '/run/dnssec-tools/rollrec.lock', 'w')
-            # self.RRLOCK.write(' ')
-            # self.RRLOCK.flush()
+            if not os.path.exists(lockdir):
+                os.mkdir(lockdir)
+            self.RRLOCK = open(lockfile, 'w')
         # Lock the lock file.
         fcntl.flock(self.RRLOCK, fcntl.LOCK_EX)
 
