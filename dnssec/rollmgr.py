@@ -14,9 +14,11 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
+
 import fcntl
 import os
 import socket
+
 
 # Type of channel we're using.
 CHANNEL_TYPE = socket.AF_UNIX
@@ -141,8 +143,7 @@ class RollMgrMixin(object):
 
     def rollmgr_running(self):
         '''
-        Routine: rollmgr_running()
-        Purpose: Front-end to the O/S-specific "is rollerd running?" function.
+        Front-end to the O/S-specific "is rollerd running?" function.
         '''
         try:
             pid = self.rollmgr_getid()
@@ -154,11 +155,11 @@ class RollMgrMixin(object):
 
     def rollmgr_getcmd(self, waiter=5):
         '''
-        Routine: rollmgr_getcmd()
-        Purpose: This routine is called by the server to fetch a command and
-                 its data from the command socket.  rollmgr_channel() is
-                 assumed to have been called to initialize the command socket.
-        waiter - Time to wait for connect.
+        This routine is called by the server to fetch a command and
+        its data from the command socket.  rollmgr_channel() is
+        assumed to have been called to initialize the command socket.
+        @param waiter: Time to wait for connect.
+        @type waiter: int
         '''
         cmd = b''  # Client's command.
         data = b''  # Command's data.
@@ -275,8 +276,7 @@ class RollMgrMixin(object):
 
     def rollmgr_sendresp(self, retcode, respmsg):
         '''
-        Routine: rollmgr_sendresp()
-        Purpose: This routine allows rollerd to send a message to a client.
+        This routine allows rollerd to send a message to a client.
         retcode - Return code.
         respmsg - Response message.
         '''
@@ -286,8 +286,7 @@ class RollMgrMixin(object):
 
     def rollmgr_closechan(self):
         '''
-        Routine: rollmgr_closechan()
-        Purpose: This routine closes down the communications channel to
-                 rollerd.  It is called by both rollerd and rollerd clients.
+        This routine closes down the communications channel to
+        rollerd. It is called by both rollerd and rollerd clients.
         '''
         self.CLNTSOCK.close()
