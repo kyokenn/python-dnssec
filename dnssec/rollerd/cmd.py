@@ -233,7 +233,9 @@ zone reload:\t%(zoneload)s
                 continue
 
             # Sign the zone.
-            self.rolllog_log(LOG_PHASE,'<command>',"mid-phase, user-initiated signing of $zone");
+            self.rolllog_log(
+                LOG_PHASE, '<command>',
+                'mid-phase, user-initiated signing of %s' % zone)
             krr = rrr.keyrec()
             if not self.signer(zone, rrr.phaseargs, krr):
                 errzones.append(zone)
@@ -246,8 +248,10 @@ zone reload:\t%(zoneload)s
             self.rollmgr_sendresp(ROLLCMD_RC_OKAY, 'rollerd signed all zones')
         else:
             errstr = ', '.join(errzones)
-            self.rolllog_log(LOG_ERR, '<command>', 'unable to sign all zones:  %s' % errstr)
-            self.rollmgr_sendresp(ROLLCMD_RC_BADZONE, 'unable to sign all zones:  %s' % errstr)
+            self.rolllog_log(
+                LOG_ERR, '<command>', 'unable to sign all zones:  %s' % errstr)
+            self.rollmgr_sendresp(
+                ROLLCMD_RC_BADZONE, 'unable to sign all zones:  %s' % errstr)
 
     def cmd_rollnow(self, zone, rolltype):
         '''
@@ -313,5 +317,6 @@ zone reload:\t%(zoneload)s
                 LOG_ERR, '<command>', '%s has bad values in rollrec file %s' %
                 (zone, self.rollrecfile))
             self.rollmgr_sendresp(
-                ROLLCMD_RC_BADZONEDATA, '%s has bad values in rollrec file %s' %
+                ROLLCMD_RC_BADZONEDATA,
+                '%s has bad values in rollrec file %s' %
                 (zone, self.rollrecfile))
