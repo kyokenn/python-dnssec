@@ -221,16 +221,14 @@ class KSKMixin(object):
             return -1
 
         # Sign the zone with a new Published KSK.
-        ret = self.signer(rname, 'KSK phase 2', krf)
-        if not ret:
+        if not self.signer(rname, 'KSK phase 2', krf):
             self.rolllog_log(
                 LOG_ERR, rname,
                 'KSK phase 2:  unable to sign zone with the Published KSK')
             return -1
 
         # Reload the zone.
-        ret = self.loadzone(rname, rrr, 'KSK phase 2')
-        if not ret:
+        if not self.loadzone(rname, rrr, 'KSK phase 2'):
             self.rolllog_log(
                 LOG_ERR, rname,
                 'KSK phase 2:  unable to reload zone')

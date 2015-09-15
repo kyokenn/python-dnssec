@@ -175,3 +175,143 @@ zone reload:\t%(zoneload)s
         # Send the status report to the caller.
         self.rolllog_log(LOG_TMI, '<command>', 'status command received')
         self.rollmgr_sendresp(ROLLCMD_RC_OKAY, outbuf)
+
+    def cmd_signzone(self, zone):
+        '''
+        This command causes a zone signing, without any key creation or rolling.
+
+        @param zone: Command's data.
+        @type zone: str
+        '''
+        self.rolllog_log(LOG_TMI, '<command>', 'signzone command received')
+
+        # Get the current phase values for the zone.
+        self.rollrec_read()
+        rrr = self.rollrec_fullrec(zone)
+        krr = rrr.keyrec()
+
+        # Sign the zone.
+        self.rolllog_log(
+            LOG_PHASE, '<command>',
+            'mid-phase, user-initiated signing of %s' % zone)
+        if self.signer(zone, rrr.phaseargs, krr):
+            self.rolllog_log(
+                LOG_TMI, '<command>', 'rollerd signed zone %s' % zone)
+            self.rollmgr_sendresp(
+                ROLLCMD_RC_OKAY, 'rollerd signed zone %s' % zone)
+        else:
+            self.rolllog_log(
+                LOG_ERR, '<command>', 'unable to sign zone %s' % zone)
+            self.rollmgr_sendresp(
+                ROLLCMD_RC_BADZONE, 'unable to sign zone %s' % zone)
+
+    def cmd_signzones(self, skipflag):
+        '''
+        This command causes all unskipped zones to be signed, without
+        any key creation or rolling.
+
+        @param skipflag: Command's data.
+        @type skipflag: str
+        '''
+        errzones = []  # Unsigned zones.
+
+        self.rolllog_log(
+            LOG_TMI, '<command>',
+            'signzones command received; data - "%s"' % skipflag)
+
+        # Convert the textual zone-skip flag into an easy-to-use boolean.
+        skipflag = skipflag == 'active'
+
+        # Sign each active zone in the rollrec file.  Any skipped zones will
+        # not be signed.
+        self.rollrec_read()
+        for zone in self.rollrec_names():
+            # Get the current rollrec for this zone and (maybe) skip
+            # any skipped zones.
+            rrr = self.rollrec_fullrec(zone)
+            if skipflag and not rrr.is_active:
+                continue
+
+            # Sign the zone.
+            self.rolllog_log(LOG_PHASE,'<command>',"mid-phase, user-initiated signing of $zone");
+            krr = rrr.keyrec()
+            if not self.signer(zone, rrr.phaseargs, krr):
+                errzones.append(zone)
+
+        # If we signed all the zones, we'll send a success message.
+        # If we couldn't sign any zones, we'll return the list of bad
+        # zones to the caller.
+        if not errzones:
+            self.rolllog_log(LOG_TMI, '<command>', 'rollerd signed all zones')
+            self.rollmgr_sendresp(ROLLCMD_RC_OKAY, 'rollerd signed all zones')
+        else:
+            errstr = ', '.join(errzones)
+            self.rolllog_log(LOG_ERR, '<command>', 'unable to sign all zones:  %s' % errstr)
+            self.rollmgr_sendresp(ROLLCMD_RC_BADZONE, 'unable to sign all zones:  %s' % errstr)
+
+    def cmd_rollnow(self, zone, rolltype):
+        '''
+        This command moves a zone into immediate KSK or ZSK rollover.
+        It calls rollnow() to move the zone into immediate rollover.
+
+        @param zone: Command's data.
+        @type zone: str
+        @param rolltype: 'KSK' or 'ZSK'
+        @type rolltype: str
+        '''
+        self.rolllog_log(
+            LOG_TMI, '<command>', 'roll%s command received; zone - "%s"' %
+            (rolltype.lower(), zone))
+
+        # Get the zone's rollrec.
+        self.rollrec_read()
+        rrr = self.rollrec_fullrec(zone)
+        if not rrr:
+            self.rolllog_log(
+                LOG_ERR, '<command>', 'no rollrec defined for zone %s' % zone)
+            self.rollmgr_sendresp(
+                ROLLCMD_RC_BADZONE, '%s not in rollrec file %s' %
+                (zone, self.rollrecfile))
+            return 0
+
+        # Don't proceed if this zone is in the middle of KSK rollover.
+        if rrr.kskphase > 0:
+            self.rolllog_log(
+                LOG_TMI, '<command>',
+                'in KSK rollover (phase %d; not attempting ZSK rollover' %
+                rrr.kskphase)
+            self.rollmgr_sendresp(
+                ROLLCMD_RC_KSKROLL,
+                '%s is already engaged in a KSK rollover' % zone)
+            return 0
+
+        # Don't proceed if this zone is in the middle of ZSK rollover.
+        if rrr.zskphase > 0:
+            self.rolllog_log(
+                LOG_TMI, '<command>',
+                'in ZSK rollover (phase %d; not attempting ZSK rollover' %
+                rrr.zskphase)
+            self.rollmgr_sendresp(
+                ROLLCMD_RC_ZSKROLL,
+                '%s is already engaged in a ZSK rollover' % zone)
+            return 0
+
+        # Do the rollover and send an appropriate response.
+        rollret = self.rollnow(zone, rolltype, 1)
+        if rollret == 1:
+            self.rollmgr_sendresp(
+                ROLLCMD_RC_OKAY, '%s %s rollover started' % (zone, rolltype))
+        elif rollret == 0:
+            self.rolllog_log(
+                LOG_ERR, '<command>', '%s not in rollrec file %s' %
+                (zone, self.rollrecfile))
+            self.rollmgr_sendresp(
+                ROLLCMD_RC_BADZONE, '%s not in rollrec file %s' %
+                (zone, self.rollrecfile))
+        elif rollret == -1:
+            self.rolllog_log(
+                LOG_ERR, '<command>', '%s has bad values in rollrec file %s' %
+                (zone, self.rollrecfile))
+            self.rollmgr_sendresp(
+                ROLLCMD_RC_BADZONEDATA, '%s has bad values in rollrec file %s' %
+                (zone, self.rollrecfile))

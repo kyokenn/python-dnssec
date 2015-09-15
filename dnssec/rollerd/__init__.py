@@ -1061,7 +1061,7 @@ class RollerD(
             self.rolllog_log(LOG_PHASE, rname, 'zonefile modified; re-signing')
 
             # Sign -- just sign -- the zone.
-            if self.signer(rname, rrr.phaseargs, krf) == 0:
+            if self.signer(rname, rrr.phaseargs, krf):
                 self.rolllog_log(LOG_TMI, rname, 'rollerd signed zone')
             else:
                 self.rolllog_log(LOG_ERR, rname, 'unable to sign zone')
@@ -1236,3 +1236,76 @@ class RollerD(
         self.rolllog_log(LOG_INFO, rname, 'reloading zone for %s' % phase)
         ret = rrr.loadzone(self.rndc, useopts)
         return ret == 0
+
+    def rollnow(self, zone, rolltype, force):
+        '''
+        This command moves a zone into immediate rollover for the
+        specified key type.  It doesn't sit in the initial waiting
+        period, but starts right off in rollover phase 2.
+
+        @param zone: Command's data.
+        @type zone: str
+        @param rolltype: Type of roll to start.
+        @type rolltype: str
+        @param force: Force-rollover flag.
+        @type force: bool
+        '''
+        # Re-read the rollrec file and change the record's type.  We'll
+        # also move the zone to phase 2 of rollover.
+        self.rollrec_lock()
+        self.rollrec_read()
+
+        # Get the rollrec for the zone.
+        rndir = os.getcwd()
+
+        # Get the rollrec for the zone.
+        rrr = self.rollrec_fullrec(zone)
+        if not rrr:
+            self.rolllog_log(
+                LOG_ERR, '<command>', 'no rollrec defined for zone %s' % zone)
+            self.rollrec_close()
+            self.rollrec_unlock()
+            return 0
+
+        # If the caller isn't demanding a rollover, we'll make sure
+        # the zone isn't already rolling.
+        if not force:
+            if rrr.kskphase > 0:
+                self.rolllog_log(
+                    LOG_TMI, '<command>',
+                    'in KSK rollover (phase %d); not attempting rollover' %
+                    rrr.kskphase)
+                self.rollrec_close()
+                self.rollrec_unlock()
+                return 0
+            if rrr.zskphase > 0:
+                self.rolllog_log(
+                    LOG_TMI, '<command>',
+                    'in ZSK rollover (phase %d); not attempting rollover' %
+                    rrr.zskphase)
+                self.rollrec_close()
+                self.rollrec_unlock()
+                return 0
+
+        # A skip record is changed to a regular rollrec.
+        if not rrr.is_active:
+            self.rolllog_log(
+                LOG_INFO, '<command>',
+                '%s skip rollrec changed to a roll rollrec' % zone)
+            rrr.is_active = True
+
+        # Change the zone's phase to rollover phase 1 (starting).
+        # WJH: This used to be set to phase 2 to bypass
+        # the initial rollover waiting period and get right to the
+        # nitty gritty of doing a rollover.  But I changed it back
+        # to phase one, which is especially important for frequent
+        # or sudden rollovers.
+        if rolltype == 'KSK':
+            self.nextphase(zone, rrr, 1, 'KSK')
+        elif rolltype == 'ZSK':
+            self.nextphase(zone, rrr, 1, 'ZSK')
+        elif rolltype == 'restart':
+            # Do nothing, just move from skip to roll.
+            pass
+
+        return 1

@@ -210,8 +210,7 @@ class ZSKMixin(object):
             return 2
 
         # Sign the zone with the Published ZSK.
-        ret = self.signer(rname, 'ZSK phase 2', krf)
-        if not ret:
+        if not self.signer(rname, 'ZSK phase 2', krf):
             self.rolllog_log(
                 LOG_ERR, rname,
                 'ZSK phase 2:  unable to sign zone with the Published ZSK')
@@ -261,23 +260,20 @@ class ZSKMixin(object):
             return -1
 
         # Adjust ZSKs in the zone's keyrec.
-        ret = self.signer(rname, 'ZSK phase 4a', krf)
-        if not ret:
+        if not self.signer(rname, 'ZSK phase 4a', krf):
             self.rolllog_log(
                 LOG_ERR, rname, 'ZSK phase 4:  unable to adjust ZSK keyrec')
             return -1
 
         # Sign the zone with the Current ZSK.
-        ret = self.signer(rname, 'ZSK phase 4b', krf)
-        if not ret:
+        if not self.signer(rname, 'ZSK phase 4b', krf):
             self.rolllog_log(
                 LOG_ERR, rname,
                 'ZSK phase 4:  unable to sign zone with the Current ZSK')
             return -1
 
         # Reload the zone.
-        ret = self.loadzone(rname, rrr, 'ZSK phase 4')
-        if not ret:
+        if not self.loadzone(rname, rrr, 'ZSK phase 4'):
             self.rolllog_log(
                 LOG_ERR, rname, 'ZSK phase 4:  unable to reload zone')
 

@@ -66,8 +66,7 @@ class DaemonMixin(object):
         Purpose: Handle the "halt" command.
         '''
         self.rolllog_log(LOG_ALWAYS, '', 'rollover manager shutting down...\n')
-        # self.rollrec_write(self.rollrecfile)  # dump the current file with commands
-        # self.rollmgr_rmid()
+        # self.rollrec_write()   # dump the current file with commands
         sys.exit(0)
 
     def queue_int_handler(self):

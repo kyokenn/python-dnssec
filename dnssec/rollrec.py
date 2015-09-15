@@ -88,7 +88,8 @@ class RollRecMixin(object):
         Smoosh the rollrec names into an array and return the array.
         The name of the informational rollrec willnot be returned.
         '''
-        return self.ROLLREC.keys()
+        return tuple(zip(*filter(
+            lambda x: x[1].name != 'info rollrec', self.ROLLREC.items())))[0]
 
     def rollrec_fullrec(self, rname):
         '''
