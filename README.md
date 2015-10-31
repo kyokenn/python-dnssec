@@ -1,3 +1,9 @@
+Project moved to SourceForge
+----------------------------
+
+Project moved to https://sourceforge.net/p/python-dnssec/
+
+
 python-dnssec
 =============
 
