@@ -435,19 +435,42 @@ zone reload:\t%(zoneload)s
 
             self.rollmgr_sendresp(ROLLCMD_RC_BADZONE, resp)
 
-    def dspuball(self):
+    def cmd_dspub(self, zone):
         '''
-        Move all zones that are currently in KSK rollover phase 5
-        to phase 6.
+        Move a zone from KSK rollover phase 5 to phase 6.
         '''
+        self.rolllog_log(
+            LOG.TMI, '<command>',
+            'dspub command received; zone - \"%s\"' % zone)
+
         if self.provider and self.provider_key:
             rollrec = self.rollrec_read(self.rollrecfile)
-            for zn, rrr in rollrec.rolls():
+            if zone in rollrec:
+                rrr = rollrec[zone]
                 self.rolllog_log(
-                    LOG.ERR, rname,
+                    LOG.ERR, zone,
                     'transfer new keyset to the parent')
                 ret = rrr.dspub(self.provider, self.provider_key)
                 if not ret:
                     self.rolllog_log(
-                        LOG.ERR, rname,
+                        LOG.ERR, zone,
+                        'automatic keyset transfer failed')
+
+    def cmd_dspuball(self):
+        '''
+        Move all zones that are currently in KSK rollover phase 5
+        to phase 6.
+        '''
+        self.rolllog_log(LOG.TMI, '<command>', 'dspuball command received')
+
+        if self.provider and self.provider_key:
+            rollrec = self.rollrec_read(self.rollrecfile)
+            for zn, rrr in rollrec.rolls():
+                self.rolllog_log(
+                    LOG.ERR, zn,
+                    'transfer new keyset to the parent')
+                ret = rrr.dspub(self.provider, self.provider_key)
+                if not ret:
+                    self.rolllog_log(
+                        LOG.ERR, zn,
                         'automatic keyset transfer failed')
