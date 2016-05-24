@@ -111,7 +111,6 @@ class RollLogMixin(object):
                     return i
         return -1
 
-
     def rolllog_level(self, newlevel, useflag):
         '''
         Get/set the logging level.  If no arguments are given, then
@@ -173,7 +172,9 @@ valid logging levels (text and numeric forms):
             newlogfile = '/dev/stdout'
             if not os.path.exists(newlogfile):
                 if useflag:
-                    print('logfile "%s" does not exist' % newlogfile, file=sys.stderr)
+                    print(
+                        'logfile "%s" does not exist' % newlogfile,
+                        file=sys.stderr)
                 return ''
 
         # If a log file was specified, ensure it's a writable regular file.
@@ -184,14 +185,18 @@ valid logging levels (text and numeric forms):
                     newlogfile != '/dev/stdout' and
                     newlogfile != '/dev/tty'):
                 if useflag:
-                    print('logfile "%s" is not a regular file' % newlogfile, file=sys.stderr)
+                    print(
+                        'logfile "%s" is not a regular file' % newlogfile,
+                        file=sys.stderr)
                 return ''
             try:
-                f = open(newlogfile, 'w')
+                f = open(newlogfile, 'w+')
                 f.close()
             except PermissionError:
                 if useflag:
-                    print('logfile "%s" is not writable' % newlogfile, file=sys.stderr)
+                    print(
+                        'logfile "%s" is not writable' % newlogfile,
+                        file=sys.stderr)
                 return ''
 
         # Open up the log file (after closing any open logs.)
