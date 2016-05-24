@@ -129,7 +129,7 @@ def rollinit():
 
 
 def rollerd(args):
-    p = subprocess.Popen(('./rollerd',) + args, cwd=os.getcwd())
+    p = subprocess.Popen(('python', 'rollerd') + args, cwd=os.getcwd())
     rcode = p.wait()
     return rcode == 0
 
@@ -188,6 +188,9 @@ def zsk():
 
 
 if __name__ == '__main__':
+    '''
+    dnssec-tools has to be installed
+    '''
     if 'ksk' in sys.argv:
         ksk()
     if 'zsk' in sys.argv:

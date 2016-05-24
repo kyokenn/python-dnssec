@@ -16,6 +16,7 @@
 
 import time
 import signal
+import sys
 
 from ..rollmgr import *
 from ..rolllog import LOG
