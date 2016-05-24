@@ -15,6 +15,7 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
 import datetime
+import logging
 import os
 import sys
 
@@ -91,8 +92,9 @@ class RollLogMixin(object):
 
         # Write the message.
         if self.LOG:
-            print(outstr, file=self.LOG)
-            self.LOG.flush()
+            # print(outstr, file=self.LOG)
+            # self.LOG.flush()
+            self.LOG.info(outstr)
 
     def rolllog_num(self, level):
         if type(level) == int:
@@ -194,10 +196,16 @@ valid logging levels (text and numeric forms):
 
         # Open up the log file (after closing any open logs.)
         logfile = newlogfile
-        if self.LOG:
-            self.LOG.close()
+        # if self.LOG:
+        #     self.LOG.close()
         try:
-            self.LOG = open(logfile, 'w+')
+            # self.LOG = open(logfile, 'w+')
+            self.LOG = logging.getLogger('rollerd')
+            self.LOG.setLevel(logging.INFO)
+            handler = logging.FileHandler(logfile)
+            handler.setLevel(logging.INFO)
+            handler.setFormatter(logging.Formatter('%(message)s'))
+            self.LOG.addHandler(handler)
         except IOError:
             print('unable to open "%s"' % logfile, file=sys.stderr)
 
