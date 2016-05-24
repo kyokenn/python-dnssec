@@ -444,9 +444,10 @@ zone reload:\t%(zoneload)s
             'dspub command received; zone - \"%s\"' % zone)
 
         if self.provider and self.provider_key:
-            rollrec = self.rollrec_read()
-            if zone in rollrec:
-                rrr = rollrec[zone]
+            self.rollrec_read()
+            rnames = self.rollrec_name()
+            if zone in rnames:
+                rrr = self.rollrec_fullrec(zone)
                 self.rolllog_log(
                     LOG.ERR, zone,
                     'transfer new keyset to the parent')
@@ -464,13 +465,14 @@ zone reload:\t%(zoneload)s
         self.rolllog_log(LOG.TMI, '<command>', 'dspuball command received')
 
         if self.provider and self.provider_key:
-            rollrec = self.rollrec_read()
-            for zn, rrr in rollrec.rolls():
+            self.rollrec_read()
+            for rname in self.rollrec_name():
+                rrr = self.rollrec_fullrec(rname)
                 self.rolllog_log(
-                    LOG.ERR, zn,
+                    LOG.ERR, rname,
                     'transfer new keyset to the parent')
                 ret = rrr.dspub(self.provider, self.provider_key)
                 if not ret:
                     self.rolllog_log(
-                        LOG.ERR, zn,
+                        LOG.ERR, rname,
                         'automatic keyset transfer failed')
