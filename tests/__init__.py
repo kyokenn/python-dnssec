@@ -190,6 +190,8 @@ def zsk():
 if __name__ == '__main__':
     '''
     dnssec-tools has to be installed
+
+    Usage: python tests/__init__.py <ksk|zsk>
     '''
     if 'ksk' in sys.argv:
         ksk()

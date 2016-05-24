@@ -197,7 +197,7 @@ valid logging levels (text and numeric forms):
         if self.LOG:
             self.LOG.close()
         try:
-            self.LOG = open(logfile, 'w')
+            self.LOG = open(logfile, 'w+')
         except IOError:
             print('unable to open "%s"' % logfile, file=sys.stderr)
 

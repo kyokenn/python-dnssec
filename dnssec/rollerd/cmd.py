@@ -16,7 +16,7 @@
 
 import os
 
-from ..defs import *
+from .. import defs
 from ..rolllog import LOG
 
 
@@ -58,71 +58,72 @@ class CmdMixin(object):
         @returns: status
         @rtype: bool
         '''
-        if cmd == ROLLCMD_DISPLAY:
+        if cmd == defs.ROLLCMD_DISPLAY:
             self.cmd_display(data)
-        elif cmd == ROLLCMD_DSPUB:
+        elif cmd == defs.ROLLCMD_DSPUB:
             self.cmd_dspub(data)
-        elif cmd == ROLLCMD_DSPUBALL:
+        elif cmd == defs.ROLLCMD_DSPUBALL:
             self.cmd_dspuball()
-        elif cmd == ROLLCMD_LOGFILE:
+        elif cmd == defs.ROLLCMD_LOGFILE:
             self.cmd_logfile(data)
-        elif cmd == ROLLCMD_LOGLEVEL:
+        elif cmd == defs.ROLLCMD_LOGLEVEL:
             self.cmd_loglevel(data)
-        elif cmd == ROLLCMD_LOGMSG:
+        elif cmd == defs.ROLLCMD_LOGMSG:
             self.cmd_logmsg(data)
-        elif cmd == ROLLCMD_LOGTZ:
+        elif cmd == defs.ROLLCMD_LOGTZ:
             self.cmd_logtz(data)
-        elif cmd == ROLLCMD_MERGERRFS:
+        elif cmd == defs.ROLLCMD_MERGERRFS:
             self.cmd_mergerrfs(data)
-        elif cmd == ROLLCMD_PHASEMSG:
+        elif cmd == defs.ROLLCMD_PHASEMSG:
             self.cmd_phasemsg(data)
-        elif cmd == ROLLCMD_ROLLALL:
+        elif cmd == defs.ROLLCMD_ROLLALL:
             self.cmd_rollall()
-        elif cmd == ROLLCMD_ROLLALLKSKS:
+        elif cmd == defs.ROLLCMD_ROLLALLKSKS:
             self.cmd_rollallksks()
-        elif cmd == ROLLCMD_ROLLALLZSKS:
+        elif cmd == defs.ROLLCMD_ROLLALLZSKS:
             self.cmd_rollallzsks()
-        elif cmd == ROLLCMD_ROLLREC:
+        elif cmd == defs.ROLLCMD_ROLLREC:
             if self.cmd_rollrec(data):
                 return True
-        elif cmd == ROLLCMD_ROLLKSK:
+        elif cmd == defs.ROLLCMD_ROLLKSK:
             self.cmd_rollnow(data, 'KSK')
-        elif cmd == ROLLCMD_ROLLZONE:
+        elif cmd == defs.ROLLCMD_ROLLZONE:
             self.cmd_rollzone(data)
-        elif cmd == ROLLCMD_ROLLZSK:
+        elif cmd == defs.ROLLCMD_ROLLZSK:
             self.cmd_rollnow(data, 'ZSK')
-        elif cmd == ROLLCMD_RUNQUEUE:
+        elif cmd == defs.ROLLCMD_RUNQUEUE:
             self.cmd_runqueue(data)
-        elif cmd == ROLLCMD_QUEUELIST:
+        elif cmd == defs.ROLLCMD_QUEUELIST:
             self.cmd_queuelist(data)
-        elif cmd == ROLLCMD_QUEUESTATUS:
+        elif cmd == defs.ROLLCMD_QUEUESTATUS:
             self.cmd_queuestatus(data)
-        elif cmd == ROLLCMD_SHUTDOWN:
+        elif cmd == defs.ROLLCMD_SHUTDOWN:
             self.cmd_shutdown(data)
-        elif cmd == ROLLCMD_SIGNZONE:
+        elif cmd == defs.ROLLCMD_SIGNZONE:
             self.cmd_signzone(data)
-        elif cmd == ROLLCMD_SIGNZONES:
+        elif cmd == defs.ROLLCMD_SIGNZONES:
             self.cmd_signzones(data)
-        elif cmd == ROLLCMD_SKIPALL:
+        elif cmd == defs.ROLLCMD_SKIPALL:
             self.cmd_skipall()
-        elif cmd == ROLLCMD_SKIPZONE:
+        elif cmd == defs.ROLLCMD_SKIPZONE:
             self.cmd_skipzone(data)
-        elif cmd == ROLLCMD_SLEEPTIME:
+        elif cmd == defs.ROLLCMD_SLEEPTIME:
             self.cmd_sleeptime(data)
-        elif cmd == ROLLCMD_SPLITRRF:
+        elif cmd == defs.ROLLCMD_SPLITRRF:
             self.cmd_splitrrf(data)
-        elif cmd == ROLLCMD_STATUS:
+        elif cmd == defs.ROLLCMD_STATUS:
             self.cmd_status(data)
-        elif cmd == ROLLCMD_ZONEGROUP:
+        elif cmd == defs.ROLLCMD_ZONEGROUP:
             self.cmd_zonegroup(data)
-        elif cmd == ROLLCMD_ZONELOG:
+        elif cmd == defs.ROLLCMD_ZONELOG:
             self.cmd_zonelog(data)
-        elif cmd == ROLLCMD_ZONESTATUS:
+        elif cmd == defs.ROLLCMD_ZONESTATUS:
             self.cmd_zonestatus(data)
-        elif cmd == ROLLCMD_ZSARGS:
+        elif cmd == defs.ROLLCMD_ZSARGS:
             self.cmd_zsargs(data)
         else:
-            self.rolllog_log(LOG.ERR, '<command>', 'invalid command  - "%s"' % cmd)
+            self.rolllog_log(
+                LOG.ERR, '<command>', 'invalid command  - "%s"' % cmd)
         return False
 
     def cmd_status(self, data):
@@ -160,7 +161,7 @@ zone reload:\t%(zoneload)s
             'zoneload': self.zoneload,
         }
 
-        if self.eventmaster == EVT_FULLLIST:
+        if self.eventmaster == defs.EVT_FULLLIST:
             outbuf += 'sleeptime:\t%s\n' % self.sleeptime
         outbuf += 'event method:\t%s\n' % self.event_methods[self.eventmaster]
 
@@ -174,7 +175,7 @@ zone reload:\t%(zoneload)s
 
         # Send the status report to the caller.
         self.rolllog_log(LOG.TMI, '<command>', 'status command received')
-        self.rollmgr_sendresp(ROLLCMD_RC_OKAY, outbuf)
+        self.rollmgr_sendresp(defs.ROLLCMD_RC_OKAY, outbuf)
 
     def cmd_signzone(self, zone):
         '''
@@ -198,12 +199,12 @@ zone reload:\t%(zoneload)s
             self.rolllog_log(
                 LOG.TMI, '<command>', 'rollerd signed zone %s' % zone)
             self.rollmgr_sendresp(
-                ROLLCMD_RC_OKAY, 'rollerd signed zone %s' % zone)
+                defs.ROLLCMD_RC_OKAY, 'rollerd signed zone %s' % zone)
         else:
             self.rolllog_log(
                 LOG.ERR, '<command>', 'unable to sign zone %s' % zone)
             self.rollmgr_sendresp(
-                ROLLCMD_RC_BADZONE, 'unable to sign zone %s' % zone)
+                defs.ROLLCMD_RC_BADZONE, 'unable to sign zone %s' % zone)
 
     def cmd_signzones(self, skipflag):
         '''
@@ -245,13 +246,15 @@ zone reload:\t%(zoneload)s
         # zones to the caller.
         if not errzones:
             self.rolllog_log(LOG.TMI, '<command>', 'rollerd signed all zones')
-            self.rollmgr_sendresp(ROLLCMD_RC_OKAY, 'rollerd signed all zones')
+            self.rollmgr_sendresp(
+                defs.ROLLCMD_RC_OKAY, 'rollerd signed all zones')
         else:
             errstr = ', '.join(errzones)
             self.rolllog_log(
                 LOG.ERR, '<command>', 'unable to sign all zones:  %s' % errstr)
             self.rollmgr_sendresp(
-                ROLLCMD_RC_BADZONE, 'unable to sign all zones:  %s' % errstr)
+                defs.ROLLCMD_RC_BADZONE,
+                'unable to sign all zones:  %s' % errstr)
 
     def cmd_rollnow(self, zone, rolltype):
         '''
@@ -274,7 +277,7 @@ zone reload:\t%(zoneload)s
             self.rolllog_log(
                 LOG.ERR, '<command>', 'no rollrec defined for zone %s' % zone)
             self.rollmgr_sendresp(
-                ROLLCMD_RC_BADZONE, '%s not in rollrec file %s' %
+                defs.ROLLCMD_RC_BADZONE, '%s not in rollrec file %s' %
                 (zone, self.rollrecfile))
             return 0
 
@@ -285,7 +288,7 @@ zone reload:\t%(zoneload)s
                 'in KSK rollover (phase %d; not attempting ZSK rollover' %
                 rrr.kskphase)
             self.rollmgr_sendresp(
-                ROLLCMD_RC_KSKROLL,
+                defs.ROLLCMD_RC_KSKROLL,
                 '%s is already engaged in a KSK rollover' % zone)
             return 0
 
@@ -296,7 +299,7 @@ zone reload:\t%(zoneload)s
                 'in ZSK rollover (phase %d; not attempting ZSK rollover' %
                 rrr.zskphase)
             self.rollmgr_sendresp(
-                ROLLCMD_RC_ZSKROLL,
+                defs.ROLLCMD_RC_ZSKROLL,
                 '%s is already engaged in a ZSK rollover' % zone)
             return 0
 
@@ -304,27 +307,27 @@ zone reload:\t%(zoneload)s
         rollret = self.rollnow(zone, rolltype, 1)
         if rollret == 1:
             self.rollmgr_sendresp(
-                ROLLCMD_RC_OKAY, '%s %s rollover started' % (zone, rolltype))
+                defs.ROLLCMD_RC_OKAY, '%s %s rollover started' % (zone, rolltype))
         elif rollret == 0:
             self.rolllog_log(
                 LOG.ERR, '<command>', '%s not in rollrec file %s' %
                 (zone, self.rollrecfile))
             self.rollmgr_sendresp(
-                ROLLCMD_RC_BADZONE, '%s not in rollrec file %s' %
+                defs.ROLLCMD_RC_BADZONE, '%s not in rollrec file %s' %
                 (zone, self.rollrecfile))
         elif rollret == -1:
             self.rolllog_log(
                 LOG.ERR, '<command>', '%s has bad values in rollrec file %s' %
                 (zone, self.rollrecfile))
             self.rollmgr_sendresp(
-                ROLLCMD_RC_BADZONEDATA,
+                defs.ROLLCMD_RC_BADZONEDATA,
                 '%s has bad values in rollrec file %s' %
                 (zone, self.rollrecfile))
 
     def cmd_shutdown(self, data):
         ''' This command forces rollerd to shut down. '''
         self.rolllog_log(LOG.TMI, '<command>', 'shutdown command received')
-        self.rollmgr_sendresp(ROLLCMD_RC_OKAY, 'rollerd shutting down')
+        self.rollmgr_sendresp(defs.ROLLCMD_RC_OKAY, 'rollerd shutting down')
         self.halt_handler()
 
     def cmd_zonestatus(self, data):
@@ -345,7 +348,7 @@ zone reload:\t%(zoneload)s
         if not self.rollrec_read():
             self.rollrec_unlock()
             self.rollmgr_sendresp(
-                ROLLCMD_RC_RRFOPEN,
+                defs.ROLLCMD_RC_RRFOPEN,
                 'unable to open rollrec file %s' % self.rollrecfile)
             self.rolllog_log(
                 LOG.ALWAYS, '<command>',
@@ -376,13 +379,13 @@ zone reload:\t%(zoneload)s
         # Send a response to the control program.
         if not cnt:
             self.rollmgr_sendresp(
-                ROLLCMD_RC_NOZONES,
+                defs.ROLLCMD_RC_NOZONES,
                 'no zones defined in %s' % self.rollrecfile)
             self.rolllog_log(
                 LOG.ALWAYS, '<command>',
                 'no zones defined in %s' % self.rollrecfile)
         else:
-            self.rollmgr_sendresp(ROLLCMD_RC_OKAY, outbuf)
+            self.rollmgr_sendresp(defs.ROLLCMD_RC_OKAY, outbuf)
 
         self.rollrec_unlock()
 
@@ -424,25 +427,23 @@ zone reload:\t%(zoneload)s
 
         # Send a response message to the caller.
         if gcnt == cnt:
-            self.rollmgr_sendresp(ROLLCMD_RC_OKAY, ' '.join(good))
+            self.rollmgr_sendresp(defs.ROLLCMD_RC_OKAY, ' '.join(good))
         else:
-            resp = 'unable to resume roll process for zones:  %s\n' % ' '.join(bad)
+            resp = (
+                'unable to resume roll process for zones:  %s\n' %
+                ' '.join(bad))
 
             # If there were any zones that were resumed, we'll add them
             # to the message as well.
             if gcnt > 0:
                 resp += 'zones now resumed:  %s\n' % ' '.join(good)
 
-            self.rollmgr_sendresp(ROLLCMD_RC_BADZONE, resp)
+            self.rollmgr_sendresp(defs.ROLLCMD_RC_BADZONE, resp)
 
-    def cmd_dspub(self, zone):
+    def dspubber(self, cmd, zone):
         '''
-        Move a zone from KSK rollover phase 5 to phase 6.
+        cmd - "dspub" or "dspuball"
         '''
-        self.rolllog_log(
-            LOG.TMI, '<command>',
-            'dspub command received; zone - \"%s\"' % zone)
-
         if self.provider and self.provider_key:
             self.rollrec_read()
             rnames = self.rollrec_name()
@@ -457,6 +458,16 @@ zone reload:\t%(zoneload)s
                         LOG.ERR, zone,
                         'automatic keyset transfer failed')
 
+    def cmd_dspub(self, zone):
+        '''
+        Move a zone from KSK rollover phase 5 to phase 6.
+        '''
+        self.rolllog_log(
+            LOG.TMI, '<command>',
+            'dspub command received; zone - \"%s\"' % zone)
+
+        self.dspubber('dspub', zone)
+
     def cmd_dspuball(self):
         '''
         Move all zones that are currently in KSK rollover phase 5
@@ -464,15 +475,5 @@ zone reload:\t%(zoneload)s
         '''
         self.rolllog_log(LOG.TMI, '<command>', 'dspuball command received')
 
-        if self.provider and self.provider_key:
-            self.rollrec_read()
-            for rname in self.rollrec_names():
-                rrr = self.rollrec_fullrec(rname)
-                self.rolllog_log(
-                    LOG.ERR, rname,
-                    'transfer new keyset to the parent')
-                ret = rrr.dspub(self.provider, self.provider_key)
-                if not ret:
-                    self.rolllog_log(
-                        LOG.ERR, rname,
-                        'automatic keyset transfer failed')
+        for zone in self.rollrec_names():
+            self.dspubber('dspuball', zone)
