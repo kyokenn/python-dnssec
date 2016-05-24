@@ -188,15 +188,15 @@ valid logging levels (text and numeric forms):
                         'logfile "%s" is not a regular file' % newlogfile,
                         file=sys.stderr)
                 return ''
-            try:
-                f = open(newlogfile, 'a')
-                f.close()
-            except PermissionError:
-                if useflag:
-                    print(
-                        'logfile "%s" is not writable' % newlogfile,
-                        file=sys.stderr)
-                return ''
+            # try:
+            #     f = open(newlogfile, 'a')
+            #     f.close()
+            # except PermissionError:
+            #     if useflag:
+            #         print(
+            #             'logfile "%s" is not writable' % newlogfile,
+            #             file=sys.stderr)
+            #     return ''
 
         # Open up the log file (after closing any open logs.)
         logfile = newlogfile
