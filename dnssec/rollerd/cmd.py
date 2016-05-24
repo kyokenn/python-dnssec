@@ -34,17 +34,17 @@ class CmdMixin(object):
         # command isn't allowed for zone groups, we'll quietly run it as
         # a regular command.
         if cmd not in self.zg_commands:
-            singlecmd(cmd, data)
+            self.singlecmd(cmd, data)
             return
 
         # Run the named command on each zone in the specified zone group.
-        rollrec = self.rollrec_read(self.rollrecfile)
+        rollrec = self.rollrec_read()
 
         # For each rollrec entry, get the keyrec file and mark its zone
         # entry as being controlled by us.
-        rollrec = self.rollrec_read(self.rollrecfile)
+        rollrec = self.rollrec_read()
         for zn, rrr in rollrec.rolls():
-            singlecmd(cmd, zn)
+            self.singlecmd(cmd, zn)
 
     def singlecmd(self, cmd, data):
         '''
@@ -444,7 +444,7 @@ zone reload:\t%(zoneload)s
             'dspub command received; zone - \"%s\"' % zone)
 
         if self.provider and self.provider_key:
-            rollrec = self.rollrec_read(self.rollrecfile)
+            rollrec = self.rollrec_read()
             if zone in rollrec:
                 rrr = rollrec[zone]
                 self.rolllog_log(
@@ -464,7 +464,7 @@ zone reload:\t%(zoneload)s
         self.rolllog_log(LOG.TMI, '<command>', 'dspuball command received')
 
         if self.provider and self.provider_key:
-            rollrec = self.rollrec_read(self.rollrecfile)
+            rollrec = self.rollrec_read()
             for zn, rrr in rollrec.rolls():
                 self.rolllog_log(
                     LOG.ERR, zn,
