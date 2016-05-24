@@ -466,7 +466,7 @@ zone reload:\t%(zoneload)s
 
         if self.provider and self.provider_key:
             self.rollrec_read()
-            for rname in self.rollrec_name():
+            for rname in self.rollrec_names():
                 rrr = self.rollrec_fullrec(rname)
                 self.rolllog_log(
                     LOG.ERR, rname,
