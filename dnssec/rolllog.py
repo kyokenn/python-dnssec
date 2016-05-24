@@ -182,22 +182,21 @@ valid logging levels (text and numeric forms):
         # process-output files.
         if os.path.exists(newlogfile):
             if (not os.path.isfile(newlogfile) and
-                    newlogfile != '/dev/stdout' and
-                    newlogfile != '/dev/tty'):
+                    newlogfile not in ('/dev/stdout', '/dev/tty')):
                 if useflag:
                     print(
                         'logfile "%s" is not a regular file' % newlogfile,
                         file=sys.stderr)
                 return ''
-            # try:
-            #     f = open(newlogfile, 'w+')
-            #     f.close()
-            # except PermissionError:
-            #     if useflag:
-            #         print(
-            #             'logfile "%s" is not writable' % newlogfile,
-            #             file=sys.stderr)
-            #     return ''
+            try:
+                f = open(newlogfile, 'a')
+                f.close()
+            except PermissionError:
+                if useflag:
+                    print(
+                        'logfile "%s" is not writable' % newlogfile,
+                        file=sys.stderr)
+                return ''
 
         # Open up the log file (after closing any open logs.)
         logfile = newlogfile
@@ -207,7 +206,10 @@ valid logging levels (text and numeric forms):
             # self.LOG = open(logfile, 'w+')
             self.LOG = logging.getLogger('rollerd')
             self.LOG.setLevel(logging.INFO)
-            handler = logging.FileHandler(logfile)
+            if logfile == '/dev/stdout':
+                handler = logging.StreamHandler(sys.stdout)
+            else:
+                handler = logging.FileHandler(logfile)
             handler.setLevel(logging.INFO)
             handler.setFormatter(logging.Formatter('%(message)s'))
             self.LOG.addHandler(handler)
