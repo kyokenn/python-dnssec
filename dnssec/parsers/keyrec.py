@@ -227,7 +227,7 @@ class Key(Section):
 
     def valid_until(self):
         return datetime.datetime.utcfromtimestamp(
-            int(self['keyrec_gensecs']) + self.life())
+            int(self['keyrec_gensecs']) + self.life)
 
     def is_valid(self):
         return datetime.datetime.now() < self.valid_until()
