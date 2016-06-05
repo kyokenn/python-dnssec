@@ -23,6 +23,7 @@ import shlex
 import subprocess
 import time
 
+import dns
 import dns.zone
 
 from . import DATETIME_FORMAT
@@ -142,14 +143,17 @@ class Roll(TabbedConf):
         self['phasestart'] = (
             datetime.datetime.fromtimestamp(t).strftime(DATETIME_FORMAT))
 
-    def zone(self):
+    def dnszone(self):
+        '''
+        Parse zone file
+        '''
         return dns.zone.from_file(
             self.zonefile_path,
             origin=self['zonename'], check_origin=False)
 
     def maxttl(self):
         rdatasets = reversed(sorted(itertools.chain(
-            *tuple(map(lambda node: node.rdatasets, self.zone().values()))),
+            *tuple(map(lambda node: node.rdatasets, self.dnszone().values()))),
             key=lambda node: node.ttl))
         rdataset = next(iter(rdatasets), None)
         ttl = rdataset and rdataset.ttl or 0
@@ -262,10 +266,6 @@ class Roll(TabbedConf):
             return self.phasestart_date + timedelta
 
     @property
-    def phaseend_date(self):
-        return self.phasestart_date + datetime.timedelta(seconds=self.maxttl())
-
-    @property
     def holddowntime_duration(self):
         holddowntime = int(self.get('holddowntime', '0D').replace('D', ''))
         if self.get('holddowntime', '0D').endswith('D'):
@@ -302,6 +302,9 @@ class Roll(TabbedConf):
 
 
 class RollRec(TabbedConf):
+    '''
+    RRF .rollrec (roll record file) parser
+    '''
     def __str__(self):
         return '\n'.join('%s' % roll for roll in self.values())
 

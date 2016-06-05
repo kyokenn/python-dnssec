@@ -137,7 +137,7 @@ class Key(Section):
 
     def definition(self):
         return '%s %s' % (
-            self.keytype(), self.gendate().strftime('%Y-%m-%d %H:%M'))
+            self.keytype, self.gendate().strftime('%Y-%m-%d %H:%M'))
 
     def _full_path(self, key):
         if os.path.isabs(self[key]):
@@ -163,9 +163,7 @@ class Key(Section):
         if dnskey >= 0:
             return self._get_contents().split()[dnskey + i]
 
-    def name(self):
-        return self._name
-
+    @property
     def zone(self):
         return self._zone
 
@@ -177,7 +175,7 @@ class Key(Section):
         '''
         256 (ZSK) or 257 (KSK)
         '''
-        #return int(self._dnskey_data(1))
+        # return int(self._dnskey_data(1))
         return {
             'zsk': 256,
             'ksk': 257,
@@ -219,6 +217,10 @@ class Key(Section):
         return int(self['%slife' % self.keytype])
 
     @property
+    def length(self):
+        return int(self['%slength' % self.keytype])
+
+    @property
     def keytag(self):
         return int(re.match(r'.+\+(\d+)\+(\d+)', self.name).group(2))
 
@@ -238,7 +240,7 @@ class Key(Section):
         is zone signed with this key
         '''
         zonedata = dns.zone.from_file(
-            self.zone().signedzone_path, self.zone().name)
+            self.zone.signedzone_path, self.zone.name)
         dnskeys = zonedata.get_rdataset(zonedata.origin, dns.rdatatype.DNSKEY)
         return bool(list(filter(
             lambda x: x.key == self.public_key_source(), dnskeys)))
@@ -251,6 +253,9 @@ class Key(Section):
 
 
 class KeyRec(TabbedConf):
+    '''
+    KRF .krf (key record file) parser
+    '''
     def __str__(self):
         return (
             '\n' +
