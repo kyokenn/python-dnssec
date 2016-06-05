@@ -14,6 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
+import dns
 import dns.rdatatype
 import dns.zone
 
@@ -236,9 +237,9 @@ class Key(Section):
         '''
         is zone signed with this key
         '''
-        zonedata = zone.from_file(
+        zonedata = dns.zone.from_file(
             self.zone().signedzone_path(), self.zone().name())
-        dnskeys = zonedata.get_rdataset(zonedata.origin, rdatatype.DNSKEY)
+        dnskeys = zonedata.get_rdataset(zonedata.origin, dns.rdatatype.DNSKEY)
         return bool(list(filter(
             lambda x: x.key == self.public_key_source(), dnskeys)))
 
