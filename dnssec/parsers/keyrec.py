@@ -238,7 +238,7 @@ class Key(Section):
         is zone signed with this key
         '''
         zonedata = dns.zone.from_file(
-            self.zone().signedzone_path(), self.zone().name())
+            self.zone().signedzone_path, self.zone().name)
         dnskeys = zonedata.get_rdataset(zonedata.origin, dns.rdatatype.DNSKEY)
         return bool(list(filter(
             lambda x: x.key == self.public_key_source(), dnskeys)))
