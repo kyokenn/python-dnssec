@@ -240,7 +240,9 @@ class Roll(TabbedConf):
 
     @property
     def phasestart_date(self):
-        return datetime.datetime.strptime(self['phasestart'], DATETIME_FORMAT)
+        if self['phasestart'] != 'new':
+            return datetime.datetime.strptime(
+                self['phasestart'], DATETIME_FORMAT)
 
     @property
     def phaseend_date(self):
