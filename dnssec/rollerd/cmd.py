@@ -146,6 +146,8 @@ loglevel:\t%(lvl)s
 logtz:\t\t%(tz)s
 always-sign:\t%(alwayssign)s
 autosign:\t%(autosign)s
+provider:\t%(provider)s
+provider key:\t%(provider_key)s
 zone reload:\t%(zoneload)s
 ''' % {
             'boottime': self.boottime.strftime('%Y-%m-%d %H:%M:%S'),
@@ -158,6 +160,8 @@ zone reload:\t%(zoneload)s
             'tz': self.usetz,
             'alwayssign': self.alwayssign,
             'autosign': self.autosign,
+            'provider': self.provider,
+            'provider_key': bool(self.provider_key),
             'zoneload': self.zoneload,
         }
 
