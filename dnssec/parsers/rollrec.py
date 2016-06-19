@@ -277,27 +277,27 @@ class Roll(TabbedConf):
             # we should do a proper RFC5011 waiting period
             # use either their defined value or a default of 60 days
             # The 60 days comes from the rollerd 60 day default
-            length += self.holddowntime_duration() or (60 * 24 * 60 * 60)
+            length += self.holddowntime_duration or (60 * 24 * 60 * 60)
         return length
 
     @property
     def phase_progress(self):
-        if not self.phaseend_date():
+        if not self.phaseend_date:
             return 0
-        if datetime.datetime.now() > self.phaseend_date():
+        if datetime.datetime.now() > self.phaseend_date:
             return 100
-        min = time.mktime(self.phasestart_date().timetuple())
-        max = time.mktime(self.phaseend_date().timetuple())
+        min = time.mktime(self.phasestart_date.timetuple())
+        max = time.mktime(self.phaseend_date.timetuple())
         now = time.mktime(datetime.datetime.now().timetuple())
         return int((now-min) * 100.0 / (max-min))
 
     @property
     def phase_left(self):
-        if self.phaseend_date():
-            if datetime.datetime.now() > self.phaseend_date():
-                return TimeDelta()
-            td = self.phaseend_date() - datetime.datetime.now()
-            return TimeDelta(seconds=int(td.total_seconds()))
+        if self.phaseend_date:
+            if datetime.datetime.now() > self.phaseend_date:
+                return datetime.timedelta()
+            td = self.phaseend_date - datetime.datetime.now()
+            return datetime.timedelta(seconds=int(td.total_seconds()))
 
 
 class RollRec(TabbedConf):
