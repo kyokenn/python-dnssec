@@ -450,17 +450,16 @@ zone reload:\t%(zoneload)s
         '''
         if self.provider and self.provider_key:
             self.rollrec_read()
-            rnames = self.rollrec_name()
+            rnames = self.rollrec_names()
             if zone in rnames:
                 rrr = self.rollrec_fullrec(zone)
                 self.rolllog_log(
-                    LOG.ERR, zone,
-                    'transfer new keyset to the parent')
+                    LOG.TMI, zone,
+                    'transfering keyset to the parent')
                 ret = rrr.dspub(self.provider, self.provider_key)
                 if not ret:
                     self.rolllog_log(
-                        LOG.ERR, zone,
-                        'automatic keyset transfer failed')
+                        LOG.ERR, zone, 'keyset transfer failed')
 
     def cmd_dspub(self, zone):
         '''

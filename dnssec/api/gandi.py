@@ -68,7 +68,7 @@ class APIClient(object):
         # check domain
         domains = self.domain_list()
         domain_names = map(operator.itemgetter('fqdn'), domains)
-        if not domain in domain_names:
+        if domain not in domain_names:
             return False
 
         # check remote keys
