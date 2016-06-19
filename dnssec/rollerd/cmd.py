@@ -478,5 +478,6 @@ zone reload:\t%(zoneload)s
         '''
         self.rolllog_log(LOG.TMI, '<command>', 'dspuball command received')
 
+        self.rollrec_read()
         for zone in self.rollrec_names():
             self.dspubber('dspuball', zone)
