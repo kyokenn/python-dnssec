@@ -20,6 +20,8 @@ import subprocess
 import time
 import sys
 
+from base64 import b64encode
+
 from dnssec.parsers.rollrec import RollRec
 from dnssec.parsers.keyrec import KeySet, Key, Zone
 
@@ -227,6 +229,9 @@ def parsers():
 
     rrf = RollRec()
     rrf.read(os.path.join(HOME_DIR, 'dnssec-tools.rollrec'))
+    with open(os.path.join(HOME_DIR, 'dnssec-tools.rollrec'), 'r') as f:
+        assert str(rrf) == f.read()
+
     for rname, roll in rrf.rolls():
         assert roll.zonefile_path == os.path.join(HOME_DIR, rname + '.signed')
         assert roll.keyrec_path == os.path.join(HOME_DIR, rname + '.krf')
@@ -236,6 +241,9 @@ def parsers():
         assert roll.maxttl() == 2
 
         krf = roll.keyrec()
+        with open(roll.keyrec_path, 'r') as f:
+            assert str(krf) == f.read()
+
         for sname, section in krf.items():
             if type(section) == KeySet:
                 assert section.keys
@@ -249,10 +257,11 @@ def parsers():
 
                 assert section.protocol == 3
                 assert section.algorithm == 8
-                assert section.public_key()
-                assert section.public_key_source()
+                assert (
+                    b64encode(section.public_key_source()) ==
+                    section.public_key().replace(' ', '').encode('utf8'))
                 assert section.keytype in ('zsk', 'ksk')
-                assert section.pubtype in ('rev', 'cur', 'pub', 'new')
+                assert section.pubtype in ('rev', 'obs', 'cur', 'pub', 'new')
                 assert section.is_valid()
                 assert section.is_signed()
 
@@ -265,14 +274,23 @@ def parsers():
 
 
 if __name__ == '__main__':
-    '''
-    dnssec-tools has to be installed
+    started = False
 
-    Usage: python3 tests.py <ksk|zsk|parsers>
-    '''
     if 'ksk' in sys.argv:
+        started = True
         ksk()
     if 'zsk' in sys.argv:
+        started = True
         zsk()
     if 'parsers' in sys.argv:
+        started = True
         parsers()
+    if 'all' in sys.argv:
+        started = True
+        ksk()
+        zsk()
+        parsers()
+
+    if not started:
+        print('Usage: ./tests.py <ksk|zsk|parsers|all>')
+        print('    dnssec-tools is reqiured')

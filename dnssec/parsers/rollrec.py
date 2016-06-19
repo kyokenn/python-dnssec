@@ -252,7 +252,7 @@ class Roll(TabbedConf):
                 3: datetime.timedelta(seconds=self.maxttl()),
                 4: datetime.timedelta(),
             }.get(self.phase, None)
-        elif self.phasetype() == 'ksk':
+        elif self.phasetype == 'ksk':
             timedelta = {
                 1: datetime.timedelta(seconds=self.maxttl()),
                 2: datetime.timedelta(),
@@ -271,7 +271,6 @@ class Roll(TabbedConf):
         if self.get('holddowntime', '0D').endswith('D'):
             holddowntime = holddowntime * 24 * 60 * 60
 
-    @property
     def _get_ksk_phase3_length(self):
         length = int(self['maxttl']) * 2
         if self.get('istrustanchor', 'no') in ('yes', '1'):
