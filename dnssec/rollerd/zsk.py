@@ -238,6 +238,7 @@ class ZSKMixin(object):
         - sign the zone with the KSK and new current ZSK
         - reload the zone
         - return the zone to the pre-rollover state
+        - transfer keys (if automatic keyset transfer is enabled)
 
         @param rname: Name of rollrec.
         @type rname: str
@@ -281,4 +282,17 @@ class ZSKMixin(object):
         # Set a timestamp for the completion of the ZSK roll.
         rrr.rollstamp('zsk')
         rrr.clearzoneerr()
+
+        # transfer keys to parent
+        if self.auto and self.provider and self.provider_key:
+            self.rolllog_log(
+                LOG.INFO, rname,
+                'KSK phase 4:  transfering new keyset to the parent')
+            ret = rrr.dspub(self.provider, self.provider_key)
+            if not ret:
+                self.rolllog_log(
+                    LOG.ERR, rname,
+                    'KSK phase 4:  automatic keyset transfer failed')
+                return -1
+
         return 5

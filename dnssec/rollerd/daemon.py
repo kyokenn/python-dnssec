@@ -18,17 +18,16 @@ import time
 import signal
 import sys
 
-from ..rollmgr import *
+from .. import rollmgr
 from ..rolllog import LOG
 
 
 class DaemonMixin(object):
     def commander(self):
         '''
-        Routine: commander()
-        Purpose: Get any commands sent to rollerd's command socket.
+        Get any commands sent to rollerd's command socket.
         '''
-        gstr = ROLLMGR_GROUP  # Group command indicator.
+        gstr = rollmgr.ROLLMGR_GROUP  # Group command indicator.
         self.rolllog_log(LOG.TMI, '<command>', 'checking commands')
 
         # Read and handle all the commands we've been sent.
@@ -53,7 +52,9 @@ class DaemonMixin(object):
 
     def intcmd_handler(self):
         ''' Handle an interrupt and get a command. '''
-        self.rolllog_log(LOG.TMI, '<command>', 'rollover manager:  got a command interrupt\n')
+        self.rolllog_log(
+            LOG.TMI, '<command>',
+            'rollover manager:  got a command interrupt\n')
         self.controllers(False)
         self.commander()
         self.controllers(True)
@@ -110,7 +111,8 @@ class DaemonMixin(object):
         '''
         if self.sleep_override:
             return
-        self.rolllog_log(LOG.TMI, '', 'sleeping for %s seconds' % self.sleeptime)
+        self.rolllog_log(
+            LOG.TMI, '', 'sleeping for %s seconds' % self.sleeptime)
         self.sleepcnt = 0
         while self.sleepcnt < self.sleeptime:
             nap = self.sleeptime - self.sleepcnt

@@ -454,7 +454,7 @@ zone reload:\t%(zoneload)s
             if zone in rnames:
                 rrr = self.rollrec_fullrec(zone)
                 self.rolllog_log(
-                    LOG.TMI, zone,
+                    LOG.INFO, zone,
                     'transfering keyset to the parent')
                 ret = rrr.dspub(self.provider, self.provider_key)
                 if not ret:

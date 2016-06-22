@@ -253,8 +253,8 @@ class KSKMixin(object):
         '''
         if self.auto and self.provider and self.provider_key:
             self.rolllog_log(
-                LOG.ERR, rname,
-                'KSK phase 4:  transfer new keyset to the parent')
+                LOG.INFO, rname,
+                'KSK phase 4:  transfering new keyset to the parent')
             ret = rrr.dspub(self.provider, self.provider_key)
             if not ret:
                 self.rolllog_log(
@@ -267,7 +267,8 @@ class KSKMixin(object):
                 LOG.INFO, rname,
                 'KSK phase 4:  admin must transfer keyset')
         else:
-            msg = MIMEText('The zone \"$rname\" is in the middle of KSK rollover.  '
+            msg = MIMEText(
+                'The zone \"$rname\" is in the middle of KSK rollover.  '
                 'In order for rollover to continue, its keyset must be '
                 'transferred to its parent.')
             msg['Subject'] = 'PyRollerd: assistance needed with KSK rollover of zone %s' % rname

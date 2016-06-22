@@ -19,17 +19,15 @@ import os
 import pwd
 import re
 import shlex
-import signal
 import subprocess
 import sys
-import time
 
 from .. import defs
 from ..common import CommonMixin
 # from ..defs import *
 from ..parsers.keyrec import KeySet
 from ..rolllog import LOG, RollLogMixin
-from ..rollmgr import *
+from ..rollmgr import RollMgrMixin
 from ..rollrec import RollRecMixin
 from .conf import ConfMixin
 from .cmd import CmdMixin
@@ -436,8 +434,8 @@ class RollerD(
                 self.signer(rname, 'initial')
                 if self.auto and self.provider and self.provider_key:
                     self.rolllog_log(
-                        LOG.ERR, rname,
-                        'transfer new keyset to the parent')
+                        LOG.INFO, rname,
+                        'transfering new keyset to the parent')
                     ret = rrr.dspub(self.provider, self.provider_key)
                     if not ret:
                         self.rolllog_log(
@@ -1131,7 +1129,7 @@ class RollerD(
         else:
             blob = re.match(r'([kz]sk)(\d)', phase.lower())
             phasetype = blob.group(1)
-            phasenum  = int(blob.group(2))
+            phasenum = int(blob.group(2))
 
             # Set a variable for phasewait().
             ptaux = ptaux or phasetype
