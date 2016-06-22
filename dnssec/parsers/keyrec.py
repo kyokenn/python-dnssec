@@ -98,7 +98,7 @@ class Zone(Section):
         t = int(time.time())
         self['keyrec_signsecs'] = t
         self['keyrec_signdate'] = (
-            datetime.datetime.fromtimestamp(t).strftime(DATETIME_FORMAT))
+            datetime.datetime.utcfromtimestamp(t).strftime(DATETIME_FORMAT))
 
 
 class KeySet(Section):
@@ -127,7 +127,7 @@ class KeySet(Section):
         t = int(time.time())
         self['keyrec_setsecs'] = t
         self['keyrec_setdate'] = (
-            datetime.datetime.fromtimestamp(t).strftime(DATETIME_FORMAT))
+            datetime.datetime.utcfromtimestamp(t).strftime(DATETIME_FORMAT))
 
 
 class Key(Section):
@@ -233,7 +233,7 @@ class Key(Section):
             int(self['keyrec_gensecs']) + self.life)
 
     def is_valid(self):
-        return datetime.datetime.now() < self.valid_until()
+        return datetime.datetime.utcnow() < self.valid_until()
 
     def is_signed(self):
         '''
@@ -249,7 +249,7 @@ class Key(Section):
         t = int(time.time())
         self['keyrec_gensecs'] = t
         self['keyrec_gendate'] = (
-            datetime.datetime.fromtimestamp(t).strftime(DATETIME_FORMAT))
+            datetime.datetime.utcfromtimestamp(t).strftime(DATETIME_FORMAT))
 
 
 class KeyRec(TabbedConf):

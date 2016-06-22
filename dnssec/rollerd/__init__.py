@@ -123,7 +123,7 @@ class RollerD(
     provider = None  # DNSSEC provider
     provider_key = ''  # DNSSEC provider API KEY
 
-    boottime = datetime.datetime.now()  # Timestamp of rollerd's start time.
+    boottime = datetime.datetime.utcnow()  # Timestamp of rollerd's start time.
 
     keyarch = ''  # Key-archive program.
     packed = False  # Flag indicating if running packed.
@@ -339,9 +339,9 @@ class RollerD(
                     # Check the zones for expired ZSKs.  We'll also
                     # keep track of how long it takes to check the
                     # ZSKs.
-                    kronos1 = datetime.datetime.now()
+                    kronos1 = datetime.datetime.utcnow()
                     self.rollkeys()
-                    kronos2 = datetime.datetime.now()
+                    kronos2 = datetime.datetime.utcnow()
                     kronodiff = kronos2 - kronos1
                     self.rolllog_log(
                         LOG.TMI, '<timer>',
@@ -1028,7 +1028,7 @@ class RollerD(
 
         chronostr = '%s' % (
             rrr.phasestart_date + datetime.timedelta(seconds=exptime) -
-            datetime.datetime.now()
+            datetime.datetime.utcnow()
         )
         self.rolllog_log(
             LOG.INFO, rname,

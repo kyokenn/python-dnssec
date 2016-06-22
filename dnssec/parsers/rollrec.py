@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
-import collections
+import calendar
 import datetime
 import itertools
 import os
@@ -135,13 +135,13 @@ class Roll(TabbedConf):
     def rollstamp(self, prefix):
         t = int(time.time())
         self['%s_rolldate' % prefix] = (
-            datetime.datetime.fromtimestamp(t).strftime(DATETIME_FORMAT))
+            datetime.datetime.utcfromtimestamp(t).strftime(DATETIME_FORMAT))
         self['%s_rollsecs' % prefix] = str(t)
 
     def settime(self):
         t = int(time.time())
         self['phasestart'] = (
-            datetime.datetime.fromtimestamp(t).strftime(DATETIME_FORMAT))
+            datetime.datetime.utcfromtimestamp(t).strftime(DATETIME_FORMAT))
 
     def dnszone(self):
         '''
@@ -161,11 +161,11 @@ class Roll(TabbedConf):
         return ttl * 2
 
     def ttlexpire(self):
-        return datetime.datetime.now() >= self.phaseend_date
+        return datetime.datetime.utcnow() >= self.phaseend_date
 
     def ttlleft(self):
         ''' Seconds left to expire '''
-        left = self.phaseend_date - datetime.datetime.now()
+        left = self.phaseend_date - datetime.datetime.utcnow()
         if left.total_seconds() < 0:  # date in future
             left = datetime.timedelta()
         return left
@@ -178,7 +178,7 @@ class Roll(TabbedConf):
             holddowntime = int(blob.group(1)) * 24 * 60 * 60
         left = (
             self.phasestart_date + datetime.timedelta(seconds=holddowntime) -
-            datetime.datetime.now())
+            datetime.datetime.utcnow())
         if left.total_seconds() < 0:  # date in future
             left = datetime.timedelta()
         return left
@@ -286,19 +286,19 @@ class Roll(TabbedConf):
     def phase_progress(self):
         if not self.phaseend_date:
             return 0
-        if datetime.datetime.now() > self.phaseend_date:
+        if datetime.datetime.utcnow() > self.phaseend_date:
             return 100
-        min = time.mktime(self.phasestart_date.timetuple())
-        max = time.mktime(self.phaseend_date.timetuple())
-        now = time.mktime(datetime.datetime.now().timetuple())
+        min = calendar.timegm(self.phasestart_date.timetuple())
+        max = calendar.timegm(self.phaseend_date.timetuple())
+        now = calendar.timegm(datetime.datetime.utcnow().timetuple())
         return int((now-min) * 100.0 / (max-min))
 
     @property
     def phase_left(self):
         if self.phaseend_date:
-            if datetime.datetime.now() > self.phaseend_date:
+            if datetime.datetime.utcnow() > self.phaseend_date:
                 return datetime.timedelta()
-            td = self.phaseend_date - datetime.datetime.now()
+            td = self.phaseend_date - datetime.datetime.utcnow()
             return datetime.timedelta(seconds=int(td.total_seconds()))
 
 
