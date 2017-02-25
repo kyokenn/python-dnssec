@@ -769,26 +769,26 @@ class RollerD(
 
         # Convert the caller's version of zsflag into what it actually
         # means for the zonesigner execution.
-        if zsflag == 'KSK phase 2':
+        if zsflag.strip() == 'KSK phase 2':
             zsflag = '-newpubksk'
-        elif zsflag == 'KSK phase 7':
+        elif zsflag.strip() == 'KSK phase 7':
             zsflag = '-rollksk'
-        elif zsflag in ('ZSK phase 2', 'ZSK phase 3'):
+        elif zsflag.strip() in ('ZSK phase 2', 'ZSK phase 3'):
             zsflag = '-usezskpub'
-        elif zsflag == 'ZSK phase 4':
-            self.signer(rname, 'ZSK phase 4a' , krr)
+        elif zsflag.strip() == 'ZSK phase 4':
+            self.signer(rname, 'ZSK phase 4a', krr)
             self.signer(rname, 'ZSK phase 4b', krr)
             return
-        elif zsflag == 'ZSK phase 4a':
+        elif zsflag.strip() == 'ZSK phase 4a':
             zsflag = '-rollzsk'
-        elif zsflag == 'ZSK phase 4b':
+        elif zsflag.strip() == 'ZSK phase 4b':
             zsflag = ''
-        elif zsflag == 'always-sign':
+        elif zsflag.strip() == 'always-sign':
             zsflag = '-usezskpub'
-        elif zsflag == 'initial':
+        elif zsflag.strip() == 'initial':
             zsflag = '-genkeys'
             initial = True
-        elif re.match(r'[KZ]SK phase [013567]', zsflag):
+        elif re.match(r'[KZ]SK phase [013567]', zsflag.strip()):
             zsflag = ''
 
         # Get the rollrec and any user-specified zonesigner arguments
