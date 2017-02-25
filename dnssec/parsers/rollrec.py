@@ -165,6 +165,9 @@ class Roll(TabbedConf):
 
     def ttlleft(self):
         ''' Seconds left to expire '''
+        if not self.phaseend_date:
+            return 0
+
         left = self.phaseend_date - datetime.datetime.utcnow()
         if left.total_seconds() < 0:  # date in future
             left = datetime.timedelta()
