@@ -267,7 +267,7 @@ class Roll(TabbedConf):
                 6: datetime.timedelta(),
                 7: datetime.timedelta(),
             }.get(self.phase, None)
-        if timedelta:
+        if timedelta is not None:
             return self.phasestart_date + timedelta
 
     @property
